@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Control Center</title>
+    <style>
+        body { font-family: Arial; background:#0f0f0f; color:white; }
+        .row { display:flex; }
+        .panel { flex:1; padding:10px; border:1px solid #333; margin:5px; }
+        #log { height:400px; overflow:auto; }
+    </style>
+</head>
+<body>
+
+<h2>AI CONTROL CENTER</h2>
+
+<div class="row">
+
+    <div class="panel">
+        <h3>Live Logs</h3>
+        <div id="log"></div>
+    </div>
+
+    <div class="panel">
+        <h3>Task Input</h3>
+        <input id="task" />
+        <button onclick="send()">Send</button>
+    </div>
+
+</div>
+
+<script src="app.js"></script>
+
+</body>
+</html>
