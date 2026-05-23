@@ -1,0 +1,25 @@
+[project]
+name = "jade-companion"
+version = "0.1.0"
+description = "Jade — a local, voice-first AI companion (Windows/macOS/Linux)"
+requires-python = ">=3.10"
+# Runtime dependencies live in requirements.txt and are installed by the
+# installer (uv/pip). Kept out of here so the two don't drift; this file's job
+# is to expose the cross-platform `jade` console command.
+
+[project.scripts]
+jade = "jade_cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Flat layout: top-level modules are listed explicitly; packages below.
+py-modules = [
+    "jade_cli", "launcher", "autostart", "platform_io", "llm", "memory",
+    "persona", "emotion", "identity", "episodic_memory", "memory_consolidator",
+    "user_model", "events", "state", "shared_state", "scheduler",
+    "autonomous_loop", "server", "main", "tray", "audit_tail",
+]
+packages = ["core", "tools", "voice", "ui"]

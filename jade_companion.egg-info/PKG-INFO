@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: jade-companion
+Version: 0.1.0
+Summary: Jade — a local, voice-first AI companion (Windows/macOS/Linux)
+Requires-Python: >=3.10
