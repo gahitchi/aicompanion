@@ -80,8 +80,8 @@ def _windows_cmd(cmd: list[str]) -> str:
 # --------------------------------------------------------------------------- #
 # Install / uninstall
 # --------------------------------------------------------------------------- #
-def install(interactive: bool = False) -> str:
-    cmd = _run_command(interactive)
+def install(interactive: bool = False, command: list[str] | None = None) -> str:
+    cmd = command or _run_command(interactive)
     if pio.IS_LINUX:
         return _install_linux(cmd)
     if pio.IS_MAC:

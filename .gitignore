@@ -1,9 +1,14 @@
 __pycache__/
 *.pyc
 *.pyo
-.venv/
+.venv*/
 venv/
 .env
+
+# build / packaging artifacts
+*.egg-info/
+build/
+dist/
 
 # heavy ASR models
 models/

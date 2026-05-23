@@ -1,4 +1,5 @@
 """Single LLM client for the Companion. OpenAI-compatible Ollama at localhost:11434."""
+import envconfig  # noqa: F401  — load .env before reading OLLAMA_* below
 import json
 import os
 import re

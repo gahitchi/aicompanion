@@ -3,6 +3,7 @@
 Merges what used to live in api/main.py, api/gateway.py, ui/server.py, ui/dashboard.py.
 Serves the static dashboard from ui/static and exposes REST + WebSocket endpoints.
 """
+import envconfig  # noqa: F401  — load .env before any module reads os.environ
 import asyncio
 import json
 import os

@@ -9,6 +9,7 @@ Modes (selected via env / args):
 Every optional interface is guarded so a missing system package self-disables
 that interface and the rest of the app keeps running.
 """
+import envconfig  # noqa: F401  — load .env before any module reads os.environ
 import argparse
 import os
 import threading

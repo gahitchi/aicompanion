@@ -9,6 +9,7 @@ command on PATH — no bash wrapper needed.
   jade --install-autostart start automatically at login (systemd/launchd/Startup)
   jade --uninstall-autostart  remove the login autostart
 """
+import envconfig  # noqa: F401  — load .env before any module reads os.environ
 import argparse
 import sys
 

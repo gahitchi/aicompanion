@@ -1,4 +1,5 @@
 """Entry point for CLI chat. The companion class lives in core.agent."""
+import envconfig  # noqa: F401  — load .env before any module reads os.environ
 import threading
 
 from core.agent import Companion

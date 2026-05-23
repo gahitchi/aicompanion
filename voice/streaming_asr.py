@@ -7,6 +7,7 @@ this module is cheap.
 While shared_state.SPEAKING is set (TTS playing), incoming mic frames are
 dropped to prevent the Companion from transcribing its own voice.
 """
+import envconfig  # noqa: F401  — load .env before reading WHISPER_* below
 import collections
 import ctypes
 import os
