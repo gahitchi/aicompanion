@@ -1,35 +1,47 @@
+# --- core LLM + memory ---
 openai>=1.0.0
 chromadb>=0.5.0
 
+# --- web API + dashboard ---
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.0.0
 websockets>=12.0
 python-dotenv>=1.0.0
 
+# --- web search / fetch ---
 requests>=2.32.0
 beautifulsoup4>=4.12.0
 
-scikit-learn>=1.4.0
+# --- numerics (numpy: everywhere; scipy: TTS pitch/resample) ---
 numpy>=1.26.0
 scipy>=1.13.0
-networkx>=3.2
 
-# voice (optional; needs system pkgs: espeak-ng, portaudio, alsa-utils)
+# --- voice. Cross-platform notes: ---
+#  - sounddevice bundles PortAudio in its Win/Mac wheels; Linux needs
+#    libportaudio2 from the system package manager.
+#  - webrtcvad-wheels ships prebuilt wheels for Win/Mac/Linux (the original
+#    `webrtcvad` compiles from source and fails without a C toolchain).
+#  - pyttsx3 floor uses the OS-native engine: espeak (Linux), nsss (macOS),
+#    sapi5 (Windows).
+#  - kokoro-onnx phonemizes via espeak-ng, shipped cross-platform by the
+#    espeakng-loader wheel (NO system install needed). System espeak-ng is only
+#    a fallback; override the lib path with PHONEMIZER_ESPEAK_LIBRARY if needed.
 sounddevice>=0.4.6
 faster-whisper>=1.2.0
-webrtcvad>=2.0.10
+webrtcvad-wheels>=2.0.14
 pyttsx3>=2.90
-# Kokoro TTS (Phase 3) and Piper fallback
 kokoro-onnx>=0.4
+espeakng-loader>=0.2.4   # bundled espeak-ng shared lib for Win/Mac/Linux
 piper-tts
 
 # tone classifier — sentiment scoring on transcribed text
 vaderSentiment>=3.3.2
 
-# tray icon (optional; needs libayatana-appindicator on Arch)
+# --- desktop integration ---
+# psutil: cross-platform battery / system info (replaces Linux /sys reads)
+psutil>=5.9.0
+# tray icon (optional). Linux also needs libayatana-appindicator.
 pystray>=0.19.0
+# Pillow: tray icon image + cross-platform screenshot fallback (ImageGrab)
 Pillow>=10.0.0
-
-# monitoring (optional)
-prometheus_client>=0.20.0

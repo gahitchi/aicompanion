@@ -85,6 +85,17 @@ def _init_kokoro() -> bool:
             _download(KOKORO_VOICES_URL, voices_path)
 
         _kokoro = Kokoro(str(onnx_path), str(voices_path))
+        # Phonemizer self-check: espeak-ng (bundled via espeakng-loader, or
+        # system-wide) must be loadable, or every reply silently degrades. Fail
+        # loudly here so it's debuggable on Windows/macOS.
+        try:
+            _kokoro.create("ok", voice="af_heart", speed=1.0, lang="en-us")
+        except Exception as e:
+            print(f"[kokoro] espeak/phonemizer self-check failed ({type(e).__name__}: {e}).")
+            print("[kokoro] espeakng-loader should provide espeak-ng; otherwise install "
+                  "it system-wide or set PHONEMIZER_ESPEAK_LIBRARY. Trying piper.")
+            _kokoro = None
+            return False
         voice = os.environ.get("KOKORO_VOICE", KOKORO_DEFAULT_VOICE)
         print(f"[kokoro] ready, voice={voice}")
         return True

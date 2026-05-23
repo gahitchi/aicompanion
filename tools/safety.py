@@ -16,6 +16,8 @@ but recoverable; false-positive SAFE is dangerous.
 import contextlib
 import os
 import shlex
+import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -44,7 +46,7 @@ def bypass():
 
 
 HOME = Path(os.path.expanduser("~")).resolve()
-TMP = Path("/tmp").resolve()
+TMP = Path(tempfile.gettempdir()).resolve()  # /tmp on unix, %TEMP% on Windows
 
 # Shell verbs that are read-only / informational. SAFE by default.
 _READ_ONLY_VERBS = {
@@ -57,6 +59,9 @@ _READ_ONLY_VERBS = {
     "diff", "cmp", "md5sum", "sha256sum", "basename", "dirname", "realpath",
     "sort", "uniq", "cut", "awk", "sed", "tr", "tee", "xargs",
     "jq", "yq", "curl", "wget",
+    # macOS / Windows read-only equivalents
+    "sw_vers", "system_profiler", "ioreg", "where", "systeminfo",
+    "tasklist", "ipconfig", "ver", "findstr", "getmac",
 }
 
 # Verbs that MODIFY filesystem / system state. CONFIRM tier — never auto.
@@ -70,6 +75,13 @@ _MUTATING_VERBS = {
     "systemctl",  # user units only — CONFIRM, will check args
     "kill", "killall", "pkill",
     "crontab", "at",
+    # macOS launch / scripting / state
+    "open", "osascript", "screencapture", "launchctl", "defaults", "pmset",
+    "caffeinate", "say", "brew", "softwareupdate",
+    # Windows launch / fs / state
+    "start", "del", "erase", "rd", "move", "copy", "xcopy", "robocopy",
+    "taskkill", "reg", "powershell", "pwsh", "cmd", "wmic", "schtasks",
+    "attrib", "icacls", "setx", "mklink", "winget", "choco", "scoop", "net",
 }
 
 # Catastrophic verbs / patterns — never run, even with confirmation.
@@ -85,6 +97,10 @@ _DENY_VERBS = {
     "passwd", "chpasswd",
     "modprobe", "rmmod", "insmod",
     "sysctl",
+    # macOS catastrophic
+    "diskutil", "csrutil", "nvram", "asr", "fdesetup", "dscl",
+    # Windows catastrophic
+    "format", "diskpart", "bcdedit", "vssadmin", "cipher", "bootrec", "fsutil",
 }
 
 # Sensitive path patterns — confirm even for read at SAFE tier paths.
@@ -126,10 +142,14 @@ def classify_path(path_str: str, op: str) -> str:
         return DENY
 
     # Outright deny operations targeting critical system roots
-    critical = {"/", "/boot", "/etc", "/usr", "/var", "/proc", "/sys", "/dev"}
+    critical = {"/", "/boot", "/etc", "/usr", "/var", "/proc", "/sys", "/dev",
+                "/System", "/Library", "/private"}  # last three: macOS
+    if sys.platform.startswith("win"):
+        sysroot = os.environ.get("SystemRoot", r"C:\Windows")
+        critical |= {sysroot, r"C:\Program Files", r"C:\Program Files (x86)"}
     p_str = str(path)
     for c in critical:
-        if op != "read" and (p_str == c or p_str.startswith(c + "/")):
+        if op != "read" and (p_str == c or p_str.startswith(c + os.sep)):
             return DENY
 
     in_scope = _in_scope(path)
@@ -173,6 +193,17 @@ def classify_shell(cmd: str) -> str:
     # Curl-pipe-to-shell is a famous footgun.
     if ("curl " in lower or "wget " in lower) and ("| sh" in lower or "| bash" in lower or "|sh" in lower or "|bash" in lower):
         return DENY
+    # Windows / cross-platform catastrophic patterns
+    nospace = lower.replace(" ", "")
+    if lower.startswith("format ") and (":" in lower[:12] or "/" in lower[:12]):
+        return DENY
+    if "vssadmindeleteshadows" in nospace or "vssadmin delete shadows" in lower:
+        return DENY  # ransomware-style shadow-copy wipe
+    if ("rd/s" in nospace or "rmdir/s" in nospace or "del/s" in nospace) and (":\\" in lower or " c:" in lower):
+        return DENY
+    if "powershell" in lower and ("iex" in lower or "invoke-expression" in lower) and \
+       ("downloadstring" in nospace or "invoke-webrequest" in lower or "irm " in lower):
+        return DENY  # remote-fetch-pipe-to-exec on Windows
 
     try:
         parts = shlex.split(cmd, posix=True)
