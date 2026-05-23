@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+
+# heavy ASR models
+models/
+
+# Chroma persistent store
+memory_db/
+
+# runtime state (private user data)
+emotion.json
+identity_memory.json
+episodes.json
+user.json
+followups.json
+consolidator_state.json
+system.log
+temp.wav

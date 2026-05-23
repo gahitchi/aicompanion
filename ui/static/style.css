@@ -1,0 +1,271 @@
+/* Jade — reactive sphere. Black void, jade orb at center. */
+
+:root {
+  --bg: #000000;
+  --text: #e7f1ec;
+  --muted: #6c7a73;
+
+  /* Jade palette */
+  --jade-deep:   #06352a;
+  --jade-mid:    #14a682;
+  --jade-bright: #5fffd0;
+
+  /* Per-tone hue overrides (the JS swaps the live hue var) */
+  --hue-soft:    320;   /* rose */
+  --hue-playful: 48;    /* warm yellow */
+  --hue-neutral: 160;   /* pure jade */
+  --hue-focused: 200;   /* steel blue */
+  --hue-sad:     220;   /* muted blue */
+  --hue-angry:   8;     /* hot red-orange */
+
+  --live-hue: 160;      /* current hue, updated by JS via data-tone */
+  --live-intensity: 1;  /* 0..1.4, drives glow & saturation */
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: radial-gradient(ellipse at center, #050807 0%, #000 70%);
+  color: var(--text);
+  font-family: -apple-system, "Inter", "Segoe UI", system-ui, sans-serif;
+  overflow: hidden;
+}
+
+.stage {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 32px;
+}
+
+/* ---------------- SPHERE ---------------- */
+
+.sphere-wrap {
+  position: relative;
+  width: min(48vmin, 420px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  transform: translateY(-4vh);  /* lift slightly so caption sits in lower third */
+}
+
+.halo {
+  position: absolute;
+  inset: -40%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    hsla(var(--live-hue), 80%, 50%, calc(0.28 * var(--live-intensity))) 0%,
+    hsla(var(--live-hue), 70%, 40%, calc(0.10 * var(--live-intensity))) 30%,
+    transparent 65%
+  );
+  filter: blur(20px);
+  animation: halo-breathe 6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.sphere {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 35% 30%,
+      hsla(var(--live-hue), 95%, 78%, 0.95) 0%,
+      hsla(var(--live-hue), 80%, 50%, 0.85) 22%,
+      hsla(var(--live-hue), 75%, 30%, 0.85) 55%,
+      hsla(var(--live-hue), 80%, 14%, 0.95) 85%,
+      hsla(var(--live-hue), 85%, 7%, 1)    100%
+    );
+  box-shadow:
+    inset 0 0 60px hsla(var(--live-hue), 90%, 10%, 0.9),
+    inset 0 -30px 80px hsla(var(--live-hue), 90%, 6%, 0.6),
+    0 0 calc(80px * var(--live-intensity)) hsla(var(--live-hue), 90%, 50%, calc(0.55 * var(--live-intensity))),
+    0 0 calc(160px * var(--live-intensity)) hsla(var(--live-hue), 90%, 50%, calc(0.25 * var(--live-intensity)));
+  animation: sphere-breathe 5s ease-in-out infinite;
+  transition: background 0.8s ease, box-shadow 0.8s ease;
+}
+
+.core {
+  position: absolute;
+  inset: 18% 35% 60% 30%;
+  border-radius: 50%;
+  background: radial-gradient(circle, hsla(var(--live-hue), 100%, 95%, 0.7), transparent 70%);
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.shimmer {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    hsla(var(--live-hue), 100%, 80%, 0.06) 25%,
+    transparent 50%,
+    hsla(var(--live-hue), 100%, 80%, 0.06) 75%,
+    transparent 100%
+  );
+  mix-blend-mode: screen;
+  animation: shimmer-rotate 18s linear infinite;
+  pointer-events: none;
+}
+
+/* ---------------- STATE-DRIVEN ANIMATIONS ---------------- */
+/* JS toggles data-state on .sphere-wrap; each value tunes the animations.   */
+
+.sphere-wrap[data-state="idle"]        { --live-intensity: 0.55; }
+.sphere-wrap[data-state="listening"]   { --live-intensity: 0.9; }
+.sphere-wrap[data-state="thinking"]    { --live-intensity: 1.05; }
+.sphere-wrap[data-state="speaking"]    { --live-intensity: 1.35; }
+.sphere-wrap[data-state="disconnected"]{ --live-intensity: 0.2; }
+.sphere-wrap[data-state="error"]       { --live-intensity: 1.1; }
+
+.sphere-wrap[data-state="idle"]      .sphere { animation-duration: 6s; }
+.sphere-wrap[data-state="listening"] .sphere { animation-duration: 3.5s; }
+.sphere-wrap[data-state="thinking"]  .sphere { animation: sphere-think 1.4s ease-in-out infinite; }
+.sphere-wrap[data-state="speaking"]  .sphere { animation: sphere-speak 0.5s ease-in-out infinite; }
+.sphere-wrap[data-state="disconnected"] .sphere { animation: none; opacity: 0.5; }
+
+.sphere-wrap[data-state="thinking"]  .shimmer { animation-duration: 5s; }
+.sphere-wrap[data-state="speaking"]  .shimmer { animation-duration: 3s; }
+
+/* ---------------- KEYFRAMES ---------------- */
+
+@keyframes sphere-breathe {
+  0%, 100% { transform: scale(0.97); }
+  50%      { transform: scale(1.02); }
+}
+
+@keyframes sphere-think {
+  0%, 100% { transform: scale(1.00); filter: hue-rotate(0deg); }
+  50%      { transform: scale(1.05); filter: hue-rotate(15deg); }
+}
+
+@keyframes sphere-speak {
+  0%, 100% { transform: scale(1.00); }
+  50%      { transform: scale(1.08); }
+}
+
+@keyframes halo-breathe {
+  0%, 100% { transform: scale(0.92); opacity: 0.85; }
+  50%      { transform: scale(1.08); opacity: 1; }
+}
+
+@keyframes shimmer-rotate {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ---------------- CAPTION ---------------- */
+
+.caption {
+  text-align: center;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 12px;
+  color: var(--muted);
+}
+.state-text {
+  font-size: 13px;
+  color: hsl(var(--live-hue), 70%, 70%);
+  margin-bottom: 6px;
+  transition: color 0.5s ease;
+}
+.meta-text { font-size: 11px; }
+.dot { margin: 0 6px; opacity: 0.4; }
+
+/* ---------------- LATEST UTTERANCE STRIP ---------------- */
+
+.latest {
+  position: absolute;
+  bottom: 16vh;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 70%;
+  text-align: center;
+  font-size: 18px;
+  line-height: 1.45;
+  color: hsla(var(--live-hue), 30%, 85%, 0.85);
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  pointer-events: none;
+}
+.latest.visible { opacity: 1; }
+.latest .who {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+/* ---------------- HISTORY (collapsible) ---------------- */
+
+.history {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: min(380px, 92vw);
+  max-height: 60vh;
+  background: rgba(8, 16, 12, 0.85);
+  border: 1px solid hsla(var(--live-hue), 70%, 30%, 0.4);
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+  font-size: 13px;
+  overflow: hidden;
+  transition: border-color 0.5s ease;
+}
+.history summary {
+  padding: 10px 14px;
+  cursor: pointer;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 10px;
+  color: var(--muted);
+  user-select: none;
+}
+.history summary:hover { color: var(--text); }
+#log {
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 4px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+#log::-webkit-scrollbar { width: 6px; }
+#log::-webkit-scrollbar-thumb {
+  background: hsla(var(--live-hue), 50%, 30%, 0.8);
+  border-radius: 3px;
+}
+
+.turn {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border-left: 2px solid hsla(var(--live-hue), 40%, 30%, 0.6);
+}
+.turn .who {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+.turn.user .who   { color: hsla(280, 70%, 75%, 0.8); }
+.turn.user        { border-left-color: hsla(280, 70%, 55%, 0.7); }
+.turn.jade .who   { color: hsla(var(--live-hue), 80%, 70%, 0.95); }
+.turn.jade        { border-left-color: hsla(var(--live-hue), 80%, 50%, 0.7); background: hsla(var(--live-hue), 60%, 20%, 0.15); }
+.turn .text { font-size: 13px; color: var(--text); }
+
+@media (max-height: 600px) {
+  .latest { bottom: 8vh; font-size: 16px; }
+}

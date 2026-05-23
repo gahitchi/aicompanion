@@ -1,101 +1,52 @@
+"""Entry point for CLI chat. The companion class lives in core.agent."""
 import threading
-import time
 
-from llm import chat
-from persona import get_persona_prompt
-from memory_manager import store_interaction, retrieve_context, process_input
-from user_model import build_user_context
-from state import history
-
-from emotion import get_emotion_prompt
-from identity import get_identity_prompt
-
+from core.agent import Companion
 from autonomous_loop import autonomous_loop
 from scheduler import scheduler_loop
 
 
-# --------------------------
-# SHARED TASK QUEUE
-# --------------------------
 task_queue = []
+companion = Companion()
 
 
-# --------------------------
-# CORE CHAT ENGINE
-# --------------------------
-def run_chat(user_input):
-
-    emotion_state = process_input(user_input)
-
-    memory = retrieve_context(user_input)
-    user_ctx = build_user_context()
-
-    prompt = f"""
-{get_persona_prompt()}
-
-{get_emotion_prompt()}
-
-{get_identity_prompt()}
-
-User context:
-{user_ctx}
-
-Memory:
-{memory}
-
-Conversation:
-{history[-10:]}
-
-User: {user_input}
-"""
-
-    response = chat(user_input, prompt)
-
-    store_interaction(user_input, response, emotion_state)
-
-    history.append(f"User: {user_input}")
-    history.append(f"AI: {response}")
-
-    return response
+def run_chat(user_input: str) -> str:
+    """Thin shim kept for backward compatibility with UI/voice modules."""
+    return companion.chat(user_input)
 
 
-# --------------------------
-# CLI LOOP (USER INTERFACE)
-# --------------------------
 def cli_loop():
-
-    print("AI Companion online")
+    print("Companion online. Type 'quit' to exit, 'agent: <task>' to run agent mode.\n")
 
     while True:
-
-        user_input = input("> ")
-
-        if user_input.lower() in ["exit", "quit"]:
+        try:
+            user_input = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
             break
 
-        response = run_chat(user_input)
+        if not user_input:
+            continue
+        if user_input.lower() in ("exit", "quit"):
+            break
 
-        print("\nAI:", response, "\n")
+        if user_input.lower().startswith("agent:"):
+            task = user_input[6:].strip()
+            print("\n[agent mode]\n")
+            result = companion.run_task(task)
+            print(f"\nResult:\n{result}\n")
+            continue
+
+        try:
+            response = companion.chat(user_input)
+        except Exception as e:
+            print(f"\n[error] {e}\n")
+            continue
+
+        print(f"\nCompanion: {response}\n")
 
 
-# --------------------------
-# BACKGROUND SYSTEM STARTUP
-# --------------------------
 if __name__ == "__main__":
-
-    # 1. autonomous reasoning loop
-    threading.Thread(
-        target=autonomous_loop,
-        args=(task_queue,),
-        daemon=True
-    ).start()
-
-    # 2. scheduler loop
-    threading.Thread(
-        target=scheduler_loop,
-        args=(task_queue,),
-        daemon=True
-    ).start()
-
-    # 3. CLI (main thread)
+    threading.Thread(target=autonomous_loop, args=(task_queue,), daemon=True).start()
+    threading.Thread(target=scheduler_loop, args=(task_queue,), daemon=True).start()
     cli_loop()
