@@ -42,6 +42,11 @@ vaderSentiment>=3.3.2
 # personal memory only for the owner's voice. Pulls in torch/torchaudio (a large
 # download). Jade fails open and runs fine if this isn't installed — drop this
 # line if you don't want voice-based memory gating.
+#
+# IMPORTANT: install a CPU-only torch BEFORE installing this file —
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# A default `pip install torch` pulls a CUDA build whose bundled libnvblas.so
+# shadows torch's CPU sgemm_ and SIGSEGVs the voice loop (ECAPA runs on CPU here).
 speechbrain>=1.0.0
 
 # --- desktop integration ---

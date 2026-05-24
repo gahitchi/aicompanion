@@ -88,11 +88,20 @@ cd aicompanion
 python -m venv .venv
 source .venv/bin/activate              # Windows: .venv\Scripts\activate
 
+# Install a CPU-only PyTorch FIRST. A plain `pip install torch` now pulls a
+# CUDA build whose bundled libnvblas.so hijacks torch's CPU BLAS and SIGSEGVs
+# the voice loop the first time SpeechBrain runs a CPU matmul. This box runs
+# everything on CPU (GPU is reserved for Ollama), so force the CPU wheels:
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# (uv: `uv pip install torch torchaudio --torch-backend=cpu`)
+
 pip install -r requirements.txt -e .   # -e . installs the `jade` command
 
-# LLM
+# LLM. Abliterate = uncensored/blunt (matches Jade's persona); swap in
+# qwen2.5:7b-instruct for the safety-tuned model. Plus the vision model.
 ollama serve &                         # if not already running
-ollama pull qwen2.5:7b-instruct
+ollama pull huihui_ai/qwen2.5-abliterate:7b
+ollama pull qwen2.5vl:3b               # vision: see_screen / look_at_image
 ```
 
 Config lives in a `.env` file at the repo root (the installer writes one; copy

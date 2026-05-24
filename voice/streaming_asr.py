@@ -27,7 +27,15 @@ def _preload_nvidia_libs():
 
     Failures here are silently ignored — if the libs aren't installed we'll just
     fall back to CPU. Loads in deterministic order: cublas before cudnn.
+
+    CPU mode short-circuits: when WHISPER_CPU=1 no CUDA libs are needed, and
+    dlopening the cublas wheel with RTLD_GLOBAL drags in libnvblas.so, whose
+    sgemm_ then shadows torch's bundled CPU BLAS and SIGSEGVs the first time
+    SpeechBrain's ECAPA model runs a CPU matmul. libnvblas is never wanted here
+    (ctranslate2 only needs libcublas + libcudnn), so it's filtered out below too.
     """
+    if os.environ.get("WHISPER_CPU") == "1":
+        return
     for pkg_name in ("nvidia.cublas.lib", "nvidia.cudnn.lib"):
         try:
             mod = __import__(pkg_name, fromlist=["*"])
@@ -45,7 +53,9 @@ def _preload_nvidia_libs():
             except OSError:
                 continue
             for fname in fnames:
-                if fname.startswith("lib") and ".so" in fname:
+                # Skip libnvblas: it intercepts BLAS sgemm_ calls and forwards
+                # them to the GPU, which crashes torch's CPU matmul path.
+                if fname.startswith("lib") and ".so" in fname and "nvblas" not in fname:
                     try:
                         ctypes.CDLL(os.path.join(lib_dir, fname), mode=ctypes.RTLD_GLOBAL)
                     except OSError:

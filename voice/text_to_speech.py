@@ -403,7 +403,11 @@ def _speak_espeak(text: str) -> None:
 
 def _speak_one(text: str, engine: str, tone: str = "neutral", lang: str = "en") -> None:
     """Synthesize one chunk on the active engine, with cascading fallbacks."""
-    text = text.strip()
+    # Collapse newlines / runs of whitespace to a single space. The espeak-ng
+    # phonemizer behind Kokoro splits input on newlines and raises "number of
+    # lines in input and output must be equal" when a streamed chunk spans
+    # multiple lines — which forced a per-chunk Piper fallback on most replies.
+    text = re.sub(r"\s+", " ", text).strip()
     if not text:
         return
     if engine == "kokoro":
