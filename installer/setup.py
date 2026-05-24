@@ -139,8 +139,11 @@ def ensure_ollama(model: str):
                 break
             time.sleep(1)
     ok("Ollama server reachable" if _ollama_up() else "Ollama server not reachable (pull may fail)")
+    _pull_if_missing(model)
 
-    # pull the model unless it's already there
+
+def _pull_if_missing(model: str):
+    """Pull an Ollama model unless it's already present."""
     try:
         listed = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=10).stdout
         if model in listed:
@@ -179,6 +182,8 @@ def write_env(model: str):
         "# JADE_QUIET_START=23\n"
         "# JADE_QUIET_END=8\n"
         "# JADE_PROACTIVE_COOLDOWN=30\n"
+        "# Vision model (run installer with --with-vision, or `ollama pull qwen2.5vl:3b`).\n"
+        "# JADE_VISION_MODEL=qwen2.5vl:3b\n"
     )
     ok(f"wrote {env}")
 
@@ -204,6 +209,9 @@ def main():
     ap.add_argument("--skip-ollama", action="store_true")
     ap.add_argument("--skip-autostart", action="store_true")
     ap.add_argument("--autostart-interactive", action="store_true")
+    ap.add_argument("--with-vision", action="store_true",
+                    help="Also pull a vision model so Jade can see the screen.")
+    ap.add_argument("--vision-model", default="qwen2.5vl:3b")
     ap.add_argument("--no-smoke", action="store_true")
     ap.add_argument("--smoke-only", action="store_true")
     args = ap.parse_args()
@@ -226,6 +234,8 @@ def main():
         ok("skipping Ollama")
     else:
         ensure_ollama(args.model)
+        if args.with_vision:
+            _pull_if_missing(args.vision_model)
 
     if args.skip_autostart:
         ok("skipping autostart")

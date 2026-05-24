@@ -13,6 +13,9 @@ from openai import OpenAI
 # set OLLAMA_MODEL to a 7-8b model (accept Whisper falling back to CPU, ~2-3s).
 MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b-instruct")
 BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+# Multimodal model for "look at my screen / this image". Small by default so it
+# can co-exist with (or quickly swap against) the chat model on an 8GB GPU.
+VISION_MODEL = os.environ.get("JADE_VISION_MODEL", "qwen2.5vl:3b")
 
 
 def _envf(name: str, default: float) -> float:
@@ -242,6 +245,45 @@ def chat_simple(prompt, system="", temperature=None, model=None):
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
     return chat(messages, temperature=temperature, model=model)
+
+
+def _img_mime(data: bytes) -> str:
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/png"
+
+
+def chat_vision(prompt, images, model=None, temperature=0.3):
+    """Ask a multimodal model about one or more images.
+
+    `images` is a list of raw image bytes. Sent through Ollama's
+    OpenAI-compatible endpoint as base64 `image_url` content parts. Returns the
+    description text. Raises on transport errors (e.g. the model isn't pulled) —
+    callers should handle that and tell the user how to install it.
+    """
+    import base64
+
+    content = [{"type": "text", "text": prompt or "Describe what you see, concisely."}]
+    for img in images:
+        if not isinstance(img, (bytes, bytearray)):
+            continue
+        b64 = base64.b64encode(bytes(img)).decode("ascii")
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{_img_mime(bytes(img))};base64,{b64}"},
+        })
+    resp = client.chat.completions.create(
+        model=model or VISION_MODEL,
+        messages=[{"role": "user", "content": content}],
+        temperature=temperature,
+    )
+    return (resp.choices[0].message.content or "").strip()
 
 
 def chat_stream(messages, temperature=None, model=None,

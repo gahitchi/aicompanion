@@ -171,6 +171,24 @@ jade --reset-voiceprint # delete it (every voice is treated as owner again)
 
 ---
 
+## Vision (optional)
+
+Jade can look at your screen or an image and talk about it. It needs a local
+multimodal model — pull one once:
+
+```bash
+ollama pull qwen2.5vl:3b      # default; or `moondream` for a lighter option
+# or let the installer do it:  bash install.sh --with-vision
+```
+
+Then just ask: "what's on my screen?", "read this for me", or "look at
+~/pic.png — what is it?" (tools `see_screen` / `look_at_image`). Set
+`JADE_VISION_MODEL` to switch models. On an 8 GB GPU the vision model swaps in
+on demand (the chat model reloads afterward), so the first vision call has some
+extra latency. If no vision model is installed, Jade says so instead of failing.
+
+---
+
 ## Per-OS notes
 
 **macOS**
@@ -238,6 +256,11 @@ All optional — most are tuning knobs. Set them in `.env` at the repo root.
 | `TTS_ENGINE` | unset | Force `kokoro` / `piper` / `espeak` |
 | `JADE_SPEAKER_THRESHOLD` | enroll-calibrated | Voice-match cutoff (lower = more lenient) |
 | `JADE_SPEAKER_DEVICE` | `cpu` | Device for the speaker model (`cpu`/`cuda`) |
+| `JADE_BARGE_IN` | `1` | Talk over her to interrupt (`0` to disable) |
+| `JADE_BARGE_RMS` | `1500` | Peak floor to trigger barge-in (raise if her own voice interrupts her) |
+| `JADE_PROACTIVE_INTERVAL` | `900` | Seconds between unprompted check-in attempts |
+| `JADE_QUIET_START` / `JADE_QUIET_END` | `23` / `8` | No proactive chatter in this window (24h, wraps midnight) |
+| `JADE_VISION_MODEL` | `qwen2.5vl:3b` | Ollama multimodal model for screen/image vision (`ollama pull` it first) |
 | `ASR_DEBUG` | `0` | Per-second mic + VAD peak/voiced heartbeat |
 | `ASR_TONE_LOG` | `0` | Full feature + per-tone score dump per turn |
 
@@ -304,7 +327,7 @@ Everything regenerates on first interaction. None of these are tracked by git.
 - `core/agent.py` — the `Companion` class (`chat`, `chat_stream`, `run_task`)
 - `llm.py` — single Ollama client
 - `memory.py` — Chroma wrapper; `persona.py` / `emotion.py` / `identity.py` / `episodic_memory.py` / `user_model.py` — personality + state
-- `tools/` — agent tools (filesystem, system, apps, media, web, safety tiers)
+- `tools/` — agent tools (filesystem, system, apps, media, web, reminders, vision, safety tiers)
 - `voice/` — ASR (`streaming_asr.py`), TTS (`text_to_speech.py`), wake word, tone classifier (`tone.py`), speaker ID (`speaker_id.py`), conversation controller
 - `server.py` — unified FastAPI; `ui/window.py` — tk window; `tray.py` — system tray
 - `autonomous_loop.py` — proactive in-character messages; `scheduler.py` — time-based tasks

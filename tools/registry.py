@@ -31,6 +31,7 @@ from tools.reminders import cancel_reminder, list_reminders, set_reminder
 from tools.runner import run_command
 from tools.safety import bypass
 from tools.system import battery_status, current_time, notify, screenshot
+from tools.vision import look_at_image, see_screen
 from tools.web import fetch_url, search_web
 import memory
 
@@ -508,6 +509,41 @@ TOOLS = {
                         "kind": {"type": "string", "default": "event"},
                     },
                     "required": ["text"],
+                },
+            },
+        },
+    },
+    # ---- vision ----------------------------------------------------------
+    "see_screen": {
+        "fn": see_screen,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "see_screen",
+                "description": "Look at the user's screen and describe it or answer a question about it. Use for 'what's on my screen', 'what am I looking at', 'read this for me', 'help me with what's here'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {"type": "string", "description": "Optional specific question about the screen."},
+                    },
+                },
+            },
+        },
+    },
+    "look_at_image": {
+        "fn": look_at_image,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "look_at_image",
+                "description": "Look at an image file on disk and describe it or answer a question about it. Use when the user points to a picture/photo/screenshot by path.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Path to the image (~ allowed)."},
+                        "question": {"type": "string", "description": "Optional specific question about the image."},
+                    },
+                    "required": ["path"],
                 },
             },
         },
