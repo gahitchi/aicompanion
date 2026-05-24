@@ -38,6 +38,12 @@ piper-tts
 # tone classifier — sentiment scoring on transcribed text
 vaderSentiment>=3.3.2
 
+# speaker recognition — ECAPA-TDNN voiceprints (`jade --enroll`) so Jade unlocks
+# personal memory only for the owner's voice. Pulls in torch/torchaudio (a large
+# download). Jade fails open and runs fine if this isn't installed — drop this
+# line if you don't want voice-based memory gating.
+speechbrain>=1.0.0
+
 # --- desktop integration ---
 # psutil: cross-platform battery / system info (replaces Linux /sys reads)
 psutil>=5.9.0

@@ -186,6 +186,10 @@ def stream_recognition():
     import webrtcvad
 
     _ensure_model()
+    # Warm the speaker-recognition model alongside Whisper so the first utterance
+    # doesn't pay its load cost. No-op unless a voiceprint is enrolled.
+    from voice import speaker_id
+    speaker_id.warmup()
     # webrtcvad: 0=least aggressive at filtering (calls almost everything speech),
     # 3=most aggressive (only confident speech). On a noisy mic 3 is the right call.
     vad = webrtcvad.Vad(3)
@@ -294,4 +298,10 @@ def stream_recognition():
                         sample_rate=SAMPLE_RATE,
                     )
                     feats["detected_lang"] = detected_lang
+                    # Who said it? (owner vs. someone else.) Fail-open to owner
+                    # when no voiceprint is enrolled, so this is a cheap no-op
+                    # until the user runs `jade --enroll`.
+                    is_owner, spk_score = speaker_id.identify(segment_bytes, SAMPLE_RATE)
+                    feats["is_owner"] = is_owner
+                    feats["speaker_score"] = spk_score
                     yield text.lower(), feats

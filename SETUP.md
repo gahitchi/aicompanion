@@ -97,6 +97,28 @@ Activate the venv first (`source .venv/bin/activate`), then pick one:
 | `uvicorn server:app --host 127.0.0.1 --port 8000` | FastAPI dashboard only. `POST /chat`, `POST /task`, `GET /state`, `GET /memory`, `WebSocket /ws`. Static UI at `/`. |
 | `python launcher.py` | Everything: tk window + FastAPI + autonomous loop + scheduler + voice + tray. Each interface degrades gracefully if its system dep is missing. |
 
+## Voice recognition (optional)
+
+Jade can learn the owner's voice and load personal memories **only** when she
+hears it. Unrecognized voices get a warm but impersonal Jade who won't reveal
+or write anything about the owner.
+
+```bash
+jade --enroll           # record ~5 short clips, builds your voiceprint
+jade --enroll-status    # show whether one is enrolled + the match threshold
+jade --reset-voiceprint # delete it (every voice is treated as owner again)
+```
+
+- Engine: SpeechBrain ECAPA-TDNN (`speechbrain/spkrec-ecapa-voxceleb`), CPU by
+  default so it doesn't compete with the LLM for VRAM. Model caches under
+  `models/spkrec-ecapa-voxceleb/`.
+- The voiceprint is a 192-float vector in `voiceprint.npz` (gitignored, no raw
+  audio kept). It's personalization, **not** hard security — and it **fails
+  open**: with no voiceprint enrolled (or `speechbrain` missing), Jade behaves
+  exactly as before.
+- Tune matching with `JADE_SPEAKER_THRESHOLD` in `.env` (lower = more lenient).
+  If Jade keeps treating you as a guest, lower it or re-enroll somewhere quiet.
+
 ## Known gotchas
 
 - **Tray menu inert on KDE Plasma/Wayland.** The icon shows but click events don't propagate (pystray's GTK/AppIndicator backend vs. Plasma's StatusNotifier). Close the tk window via the X button to exit cleanly instead.
@@ -111,6 +133,7 @@ Activate the venv first (`source .venv/bin/activate`), then pick one:
 - `identity_memory.json` — user profile + relationship state
 - `episodes.json` — last conversation episodes
 - `user.json` — user-model inferred attributes
+- `voiceprint.npz` — enrolled owner voiceprint (delete to disable voice gating)
 - `episodes.json`, `goals.json`, `skills.json`, `policy.json`, `graph.json` — various per-module persistence
 
 Everything is regenerated on first interaction.

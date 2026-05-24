@@ -25,3 +25,6 @@ followups.json
 consolidator_state.json
 system.log
 temp.wav
+
+# enrolled voiceprint (biometric — never commit)
+voiceprint.npz

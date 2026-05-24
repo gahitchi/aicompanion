@@ -28,10 +28,26 @@ EPISODIC_TURNS = 5
 MEMORY_K = 3
 
 
-def _system_prompt(extra: str = "") -> str:
-    """Persona + live emotion + identity snapshot, plus optional appendix."""
-    base = get_persona_prompt(emotion=load_emotion(), identity=load_identity())
+def _system_prompt(extra: str = "", include_identity: bool = True) -> str:
+    """Persona + live emotion + identity snapshot, plus optional appendix.
+
+    `include_identity=False` drops the owner's identity overlay — used when the
+    speaker isn't the recognized owner, so Jade doesn't reveal who they are.
+    """
+    identity = load_identity() if include_identity else None
+    base = get_persona_prompt(emotion=load_emotion(), identity=identity)
     return base + ("\n\n" + extra if extra else "")
+
+
+# Appended to a guest's system prompt: warm, but no access to the owner's life.
+_GUEST_GUARD = (
+    "NOTE: You do NOT recognize this speaker's voice as your person (the owner "
+    "you belong to). Be warm, friendly, and helpful as a fresh acquaintance, "
+    "but do NOT share, confirm, or reference any personal details, memories, "
+    "plans, projects, or private information about your owner — you have none "
+    "loaded for this conversation anyway. If asked about your owner's private "
+    "information, politely decline and keep things general."
+)
 
 
 _LANG_NAME = {
@@ -40,35 +56,42 @@ _LANG_NAME = {
 }
 
 
-def _conversation_messages(user_input: str, tone: str = "neutral", lang: str = "en") -> list:
+def _conversation_messages(user_input: str, tone: str = "neutral", lang: str = "en",
+                           is_owner: bool = True) -> list:
     """Build a chat-completion message list with retrieved memory and recent history.
 
     `tone` is the per-turn classification (soft/playful/neutral/focused/sad/angry).
     `lang` is the user's detected speech language (ISO short code). When non-en,
     a language-match instruction is appended to the system message.
+    `is_owner` gates the owner's private context: when False (an unrecognized
+    voice), no identity, memories, episodes, or chat history are loaded, and a
+    guest guard is appended instead.
     """
     from voice.tone import TONE_DIRECTIVES, MODE_DIRECTIVES, current_mode
 
-    mems = memory.get_memories(user_input, k=MEMORY_K)
-    episodes = retrieve_recent()[-EPISODIC_TURNS:]
-    # Filter out episodes whose AI side looks like an old hallucinated tool
-    # answer — code-fenced fake `ls` output, "[PROPOSED..." text, etc. These
-    # poison new turns because the model copies the pattern.
-    episodes = [
-        e for e in episodes
-        if "[PROPOSED" not in e.get("ai", "")
-        and "```" not in e.get("ai", "")
-    ]
-    user_ctx = build_user_context()
-
     context_block = []
-    if user_ctx:
-        context_block.append(user_ctx)
-    if mems:
-        context_block.append("Relevant memories:\n" + "\n".join(f"- {m}" for m in mems))
-    if episodes:
-        ep_text = "\n".join(f"  user: {e['user']}\n  you:  {e['ai']}" for e in episodes)
-        context_block.append("Recent episodes:\n" + ep_text)
+    if is_owner:
+        mems = memory.get_memories(user_input, k=MEMORY_K)
+        episodes = retrieve_recent()[-EPISODIC_TURNS:]
+        # Filter out episodes whose AI side looks like an old hallucinated tool
+        # answer — code-fenced fake `ls` output, "[PROPOSED..." text, etc. These
+        # poison new turns because the model copies the pattern.
+        episodes = [
+            e for e in episodes
+            if "[PROPOSED" not in e.get("ai", "")
+            and "```" not in e.get("ai", "")
+        ]
+        user_ctx = build_user_context()
+
+        if user_ctx:
+            context_block.append(user_ctx)
+        if mems:
+            context_block.append("Relevant memories:\n" + "\n".join(f"- {m}" for m in mems))
+        if episodes:
+            ep_text = "\n".join(f"  user: {e['user']}\n  you:  {e['ai']}" for e in episodes)
+            context_block.append("Recent episodes:\n" + ep_text)
+    else:
+        context_block.append(_GUEST_GUARD)
 
     mode = current_mode()
     mode_directive = MODE_DIRECTIVES.get(mode, "")
@@ -87,15 +110,17 @@ def _conversation_messages(user_input: str, tone: str = "neutral", lang: str = "
             f"language mid-reply. Stay in {lang_name} until they switch back."
         )
 
-    system = _system_prompt("\n\n".join(context_block))
+    system = _system_prompt("\n\n".join(context_block), include_identity=is_owner)
 
     messages = [{"role": "system", "content": system}]
 
-    for turn in history[-HISTORY_TURNS * 2:]:
-        if turn.startswith("User: "):
-            messages.append({"role": "user", "content": turn[6:]})
-        elif turn.startswith("AI: "):
-            messages.append({"role": "assistant", "content": turn[4:]})
+    # Recent history is the owner's conversation — never replay it for a guest.
+    if is_owner:
+        for turn in history[-HISTORY_TURNS * 2:]:
+            if turn.startswith("User: "):
+                messages.append({"role": "user", "content": turn[6:]})
+            elif turn.startswith("AI: "):
+                messages.append({"role": "assistant", "content": turn[4:]})
 
     messages.append({"role": "user", "content": user_input})
     return messages
@@ -115,7 +140,8 @@ class Companion:
         # Jade into replying in the same language, and by TTS to pick a voice.
         self.last_lang: str = "en"
 
-    def chat(self, user_input: str, tone: str = "neutral", lang: Optional[str] = None) -> str:
+    def chat(self, user_input: str, tone: str = "neutral", lang: Optional[str] = None,
+             is_owner: bool = True) -> str:
         # Drain pending confirmation if any.
         prefix = self._handle_pending(user_input)
         if prefix == "_consumed":
@@ -124,32 +150,40 @@ class Companion:
             # summarize.
             user_input = "(continue from where you were)"
         emotion_state = update_emotion(user_input)
-        update_user(user_input)
+        if is_owner:
+            update_user(user_input)
 
         if lang:
             self.last_lang = lang
-        messages = _conversation_messages(user_input, tone=tone, lang=self.last_lang)
+        messages = _conversation_messages(user_input, tone=tone, lang=self.last_lang,
+                                          is_owner=is_owner)
         if prefix and prefix != "_consumed":
             messages.append({"role": "system", "content": prefix})
 
         reply = self._chat_with_tools(messages, streaming=False)
-        self._finalize_turn(user_input, reply, emotion_state)
+        self._finalize_turn(user_input, reply, emotion_state, is_owner=is_owner)
         return reply
 
-    def chat_stream(self, user_input: str, tone: str = "neutral", lang: Optional[str] = None):
+    def chat_stream(self, user_input: str, tone: str = "neutral", lang: Optional[str] = None,
+                    is_owner: bool = True):
         """Generator: yields text deltas as the LLM produces them. Internally
         handles tool calls — if the LLM emits one, this generator runs it and
         keeps streaming the continuation. If the tool is CONFIRM tier,
-        pending_action gets set and the LLM narrates what it's about to do."""
+        pending_action gets set and the LLM narrates what it's about to do.
+
+        `is_owner=False` runs without the owner's private context and skips
+        persistent personal writes (see _finalize_turn)."""
         prefix = self._handle_pending(user_input)
         if prefix == "_consumed":
             user_input = "(continue from where you were)"
         emotion_state = update_emotion(user_input)
-        update_user(user_input)
+        if is_owner:
+            update_user(user_input)
 
         if lang:
             self.last_lang = lang
-        messages = _conversation_messages(user_input, tone=tone, lang=self.last_lang)
+        messages = _conversation_messages(user_input, tone=tone, lang=self.last_lang,
+                                          is_owner=is_owner)
         if prefix and prefix != "_consumed":
             messages.append({"role": "system", "content": prefix})
 
@@ -159,7 +193,7 @@ class Companion:
             yield token
 
         reply = "".join(parts).strip()
-        self._finalize_turn(user_input, reply, emotion_state)
+        self._finalize_turn(user_input, reply, emotion_state, is_owner=is_owner)
 
     # ---------- internal: tool-call loop ----------------------------------
 
@@ -317,8 +351,16 @@ class Companion:
         self.pending_action = None
         return ""
 
-    def _finalize_turn(self, user_input: str, reply: str, emotion_state) -> None:
-        """Post-turn side effects: memory writes, episodic capture, identity update."""
+    def _finalize_turn(self, user_input: str, reply: str, emotion_state,
+                       is_owner: bool = True) -> None:
+        """Post-turn side effects: memory writes, episodic capture, identity update.
+
+        For a guest (``is_owner=False``) we persist nothing — a stranger must not
+        write into the owner's long-term memory, episodes, identity, or even the
+        replayed chat history. The turn happens, then it's forgotten.
+        """
+        if not is_owner:
+            return
         memory.save_memory(f"User said: {user_input}", kind="event")
         memory.save_memory(f"Companion replied: {reply}", kind="event")
         add_episode(user_input, reply, emotion_state)

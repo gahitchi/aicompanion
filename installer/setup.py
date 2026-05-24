@@ -166,6 +166,10 @@ def write_env(model: str):
         "WHISPER_CPU=1\n"
         "# KOKORO_VOICE=af_bella:0.4,bf_emma:0.35,am_michael:0.25\n"
         "# JADE_VOICE_PITCH=1.0\n"
+        "# Speaker recognition (run `jade --enroll` first). Lower = more lenient\n"
+        "# about matching your voice; raise it if others get treated as you.\n"
+        "# JADE_SPEAKER_THRESHOLD=0.45\n"
+        "# JADE_SPEAKER_DEVICE=cpu\n"
     )
     ok(f"wrote {env}")
 

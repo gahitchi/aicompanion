@@ -26,15 +26,18 @@ def _is_sleep(text: str) -> bool:
     return lo in SLEEP_PHRASES
 
 
-def _handle_turn(text: str, tone: str = "neutral", lang: str = "en") -> None:
+def _handle_turn(text: str, tone: str = "neutral", lang: str = "en",
+                 is_owner: bool = True) -> None:
     """Run one user turn through the LLM and speak the reply, matching tone.
 
     Streams tokens straight into TTS so the first sentence plays while the
-    LLM is still generating the rest.
+    LLM is still generating the rest. `is_owner` gates personal memory: when
+    the speaker isn't the enrolled owner, the agent runs without their private
+    context.
     """
     events.publish({"type": "status", "state": "thinking"})
     try:
-        token_stream = companion.chat_stream(text, tone=tone, lang=lang)
+        token_stream = companion.chat_stream(text, tone=tone, lang=lang, is_owner=is_owner)
         events.publish({"type": "status", "state": "speaking"})
         response = speak_stream(token_stream, tone=tone, lang=lang)
     except Exception as e:
@@ -66,10 +69,13 @@ def run_voice() -> None:
         mode = update_tone_history(tone)
         rms = features.get("rms", 0)
         lang = features.get("detected_lang", "en")
-        print(f"[heard] ({tone}/{mode}/{lang} rms={rms:.0f}) {text}")
+        is_owner = features.get("is_owner", True)
+        who = "owner" if is_owner else f"guest({features.get('speaker_score', 0):.2f})"
+        print(f"[heard] ({tone}/{mode}/{lang}/{who} rms={rms:.0f}) {text}")
         events.publish({
             "type": "heard", "text": text, "tone": tone, "mode": mode,
             "rms": round(rms, 1), "active": active, "lang": lang,
+            "is_owner": is_owner,
         })
 
         if not active:
@@ -80,7 +86,7 @@ def run_voice() -> None:
             active = True
             events.publish({"type": "wake", "active": True})
             if remainder:
-                _handle_turn(remainder, tone=tone, lang=lang)
+                _handle_turn(remainder, tone=tone, lang=lang, is_owner=is_owner)
             else:
                 events.publish({"type": "status", "state": "speaking"})
                 speak("Yeah?")
@@ -95,4 +101,4 @@ def run_voice() -> None:
             events.publish({"type": "status", "state": "idle"})
             continue
 
-        _handle_turn(text, tone=tone, lang=lang)
+        _handle_turn(text, tone=tone, lang=lang, is_owner=is_owner)
