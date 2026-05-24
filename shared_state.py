@@ -15,6 +15,14 @@ STOP_EVENT = threading.Event()
 # this is set, so the Companion doesn't transcribe its own voice and loop.
 SPEAKING = threading.Event()
 
+# Set by the ASR loop when the user starts talking over Jade (barge-in). TTS
+# watches this and stops speaking; it's cleared at the start of the next reply.
+INTERRUPT = threading.Event()
+
+# Wall-clock time of the last user utterance (set by the voice controller).
+# The proactive speaker uses it to avoid talking right after the user did.
+LAST_USER_SPEECH = 0.0
+
 
 def push(task):
     STATE["queue"].append(task)

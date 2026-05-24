@@ -2,16 +2,21 @@
 
 `detect_and_strip(text)` returns:
   - `None` if no wake word is present (caller stays idle)
-  - `""` if wake word present with no remainder ("hey companion" alone — caller acks)
-  - `"the rest"` if wake word present with remainder ("hey companion what time is it"
+  - `""` if wake word present with no remainder ("hey jade" alone — caller acks)
+  - `"the rest"` if wake word present with remainder ("hey jade what time is it"
     → "what time is it" — caller processes it immediately, no two-turn dance)
 """
 
-# Ordered longest-first so "hey companion" wins over bare "companion" when both match.
+# Ordered longest-first so "hey jade" wins over bare "jade" when both match.
+# "companion" variants are kept as aliases for back-compat.
 WAKE_WORDS = (
+    "hey jade",
+    "ok jade",
+    "okay jade",
     "hey companion",
     "ok companion",
     "okay companion",
+    "jade",
     "companion",
 )
 

@@ -23,10 +23,38 @@ don't transcribe ourselves.
 import os
 import re
 import threading
+import time
 import urllib.request
 from pathlib import Path
 
-from shared_state import SPEAKING
+from shared_state import SPEAKING, INTERRUPT
+
+
+# Barge-in: when set, the user is talking over Jade and playback should stop.
+_BARGE_IN = os.environ.get("JADE_BARGE_IN", "1") == "1"
+
+
+def _play(audio, sr) -> None:
+    """Play one audio buffer, abortable mid-playback by the INTERRUPT event.
+
+    Falls back to a plain blocking play when barge-in is disabled. While
+    playing, polls INTERRUPT every ~20ms and calls sd.stop() the moment the
+    user starts talking over her.
+    """
+    import sounddevice as sd
+    sd.play(audio, samplerate=sr)
+    if not _BARGE_IN:
+        sd.wait()
+        return
+    duration = len(audio) / float(sr) if sr else 0.0
+    waited = 0.0
+    while waited < duration + 0.05:
+        if INTERRUPT.is_set():
+            sd.stop()
+            return
+        time.sleep(0.02)
+        waited += 0.02
+    sd.wait()
 
 
 # Sentence-end matcher: punctuation followed by whitespace or end-of-stream.
@@ -313,9 +341,10 @@ def _speak_kokoro(text: str, tone: str = "neutral", lang: str = "en") -> None:
     gen_speed = speed / pitch if pitch > 0 else speed
 
     def _emit(samples, sr):
+        if INTERRUPT.is_set():
+            return
         audio = _deepen(samples.astype(np.float32), pitch) * volume
-        sd.play(audio, samplerate=sr)
-        sd.wait()
+        _play(audio, sr)
 
     if hasattr(_kokoro, "create_stream"):
         import asyncio
@@ -328,6 +357,8 @@ def _speak_kokoro(text: str, tone: str = "neutral", lang: str = "en") -> None:
         try:
             agen = _run()
             while True:
+                if INTERRUPT.is_set():
+                    break
                 try:
                     samples, sr = loop.run_until_complete(agen.__anext__())
                 except StopAsyncIteration:
@@ -358,9 +389,10 @@ def _speak_piper(text: str) -> None:
             audio_bytes = chunk.audio_int16_array.tobytes()
         else:
             continue
+        if INTERRUPT.is_set():
+            return
         audio = np.frombuffer(audio_bytes, dtype=np.int16)
-        sd.play(audio, samplerate=sample_rate)
-        sd.wait()
+        _play(audio, sample_rate)
 
 
 def _speak_espeak(text: str) -> None:
@@ -403,6 +435,7 @@ def speak(text: str, tone: str = "neutral", lang: str = "en") -> None:
     if not text or not text.strip():
         return
     engine = _ensure_engine()
+    INTERRUPT.clear()  # fresh reply — drop any stale barge-in flag
     SPEAKING.set()
     try:
         _speak_one(text, engine, tone=tone, lang=lang)
@@ -417,6 +450,7 @@ def speak_stream(token_iter, tone: str = "neutral", lang: str = "en") -> str:
     voice + phonemizer locale. Returns the full text.
     """
     engine = _ensure_engine()
+    INTERRUPT.clear()  # fresh reply — drop any stale barge-in flag
     SPEAKING.set()
     buf = ""
     full = []
@@ -427,6 +461,8 @@ def speak_stream(token_iter, tone: str = "neutral", lang: str = "en") -> str:
             buf += token
             full.append(token)
             while True:
+                if INTERRUPT.is_set():
+                    break
                 m = _SENT_END.search(buf)
                 if not m:
                     break
@@ -437,7 +473,9 @@ def speak_stream(token_iter, tone: str = "neutral", lang: str = "en") -> str:
                     _speak_one(sentence, engine, tone=tone, lang=lang)
                 elif buf:
                     buf = sentence + " " + buf
-        if buf.strip():
+            if INTERRUPT.is_set():
+                break  # user is talking over her — stop consuming the stream
+        if buf.strip() and not INTERRUPT.is_set():
             _speak_one(buf, engine, tone=tone, lang=lang)
     finally:
         SPEAKING.clear()

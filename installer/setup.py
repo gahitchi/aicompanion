@@ -170,6 +170,10 @@ def write_env(model: str):
         "# about matching your voice; raise it if others get treated as you.\n"
         "# JADE_SPEAKER_THRESHOLD=0.45\n"
         "# JADE_SPEAKER_DEVICE=cpu\n"
+        "# Barge-in: talk over Jade to interrupt her. Best with headphones; if her\n"
+        "# own voice keeps interrupting her, raise JADE_BARGE_RMS or set =0.\n"
+        "# JADE_BARGE_IN=1\n"
+        "# JADE_BARGE_RMS=1500\n"
     )
     ok(f"wrote {env}")
 

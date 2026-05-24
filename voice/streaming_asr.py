@@ -56,7 +56,7 @@ _preload_nvidia_libs()
 
 import numpy as np
 
-from shared_state import SPEAKING, STOP_EVENT
+from shared_state import SPEAKING, STOP_EVENT, INTERRUPT
 
 
 # large-v3-turbo: multilingual, ~5-6× faster than large-v3 on GPU with
@@ -91,6 +91,14 @@ PREROLL_FRAMES = 10  # 300ms
 # growing the buffer unbounded.
 MAX_SEGMENT_MS = 12000
 MAX_SEGMENT_FRAMES = MAX_SEGMENT_MS // VAD_FRAME_MS
+
+# Barge-in: while Jade is speaking, watch for the user talking over her and
+# signal INTERRUPT so TTS stops. Requires sustained voiced frames above a peak
+# floor to avoid triggering on her own echo / room noise. Best with headphones;
+# raise JADE_BARGE_RMS if her own voice keeps interrupting her.
+_BARGE_IN = os.environ.get("JADE_BARGE_IN", "1") == "1"
+_BARGE_PEAK = int(os.environ.get("JADE_BARGE_RMS", "1500"))   # int16 peak floor
+_BARGE_FRAMES = int(os.environ.get("JADE_BARGE_FRAMES", "8")) # ~240ms at 30ms/frame
 
 _model = None
 
@@ -209,6 +217,7 @@ def stream_recognition():
     # tone classifier's voiced-ratio feature.
     seg_voiced_frames = 0
     seg_total_frames = 0
+    barge_count = 0
     _dbg_n = 0
     _dbg_peak = 0
     _dbg_voiced = 0
@@ -224,13 +233,27 @@ def stream_recognition():
             frame = bytes(data)
 
             if SPEAKING.is_set():
-                # Companion is talking. Reset state; whatever we hear is feedback.
+                # Companion is talking. Most of what we hear is her own voice —
+                # but watch for the user talking over her (barge-in).
+                if _BARGE_IN and not INTERRUPT.is_set():
+                    samples = np.frombuffer(frame, dtype=np.int16)
+                    peak = int(np.max(np.abs(samples))) if samples.size else 0
+                    if vad.is_speech(frame, SAMPLE_RATE) and peak >= _BARGE_PEAK:
+                        barge_count += 1
+                        if barge_count >= _BARGE_FRAMES:
+                            print("[barge-in] user talking over her — interrupting")
+                            INTERRUPT.set()
+                            barge_count = 0
+                    else:
+                        barge_count = 0
+                # Reset capture state; her audio shouldn't seed the next utterance.
                 preroll.clear()
                 speech_buffer.clear()
                 consecutive_speech = 0
                 consecutive_silence = 0
                 triggered = False
                 continue
+            barge_count = 0
 
             is_speech = vad.is_speech(frame, SAMPLE_RATE)
 
