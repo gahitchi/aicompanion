@@ -57,15 +57,16 @@ _LANG_NAME = {
 
 
 def _conversation_messages(user_input: str, tone: str = "neutral", lang: str = "en",
-                           is_owner: bool = True) -> list:
+                           is_owner: bool = True, speaker: str = None) -> list:
     """Build a chat-completion message list with retrieved memory and recent history.
 
     `tone` is the per-turn classification (soft/playful/neutral/focused/sad/angry).
     `lang` is the user's detected speech language (ISO short code). When non-en,
     a language-match instruction is appended to the system message.
     `is_owner` gates the owner's private context: when False (an unrecognized
-    voice), no identity, memories, episodes, or chat history are loaded, and a
-    guest guard is appended instead.
+    voice), no identity, memories, episodes, or chat history are loaded.
+    `speaker` is the recognized name of a known non-owner (household member), so
+    Jade can greet them by name without exposing the owner's private memory.
     """
     from voice.tone import TONE_DIRECTIVES, MODE_DIRECTIVES, current_mode
 
@@ -90,6 +91,16 @@ def _conversation_messages(user_input: str, tone: str = "neutral", lang: str = "
         if episodes:
             ep_text = "\n".join(f"  user: {e['user']}\n  you:  {e['ai']}" for e in episodes)
             context_block.append("Recent episodes:\n" + ep_text)
+    elif speaker:
+        import people
+        note = (
+            f"NOTE: The current speaker is {speaker}, a member of the household "
+            f"you recognize by voice — but NOT your owner. Greet and address them "
+            f"by name and be warm and helpful, but do NOT share, confirm, or "
+            f"reference your owner's private memories, plans, or personal details."
+        )
+        facts = people.facts_text(speaker)
+        context_block.append(note + ((" " + facts) if facts else ""))
     else:
         context_block.append(_GUEST_GUARD)
 
@@ -141,7 +152,7 @@ class Companion:
         self.last_lang: str = "en"
 
     def chat(self, user_input: str, tone: str = "neutral", lang: Optional[str] = None,
-             is_owner: bool = True) -> str:
+             is_owner: bool = True, speaker: Optional[str] = None) -> str:
         # Drain pending confirmation if any.
         prefix = self._handle_pending(user_input)
         if prefix == "_consumed":
@@ -156,23 +167,24 @@ class Companion:
         if lang:
             self.last_lang = lang
         messages = _conversation_messages(user_input, tone=tone, lang=self.last_lang,
-                                          is_owner=is_owner)
+                                          is_owner=is_owner, speaker=speaker)
         if prefix and prefix != "_consumed":
             messages.append({"role": "system", "content": prefix})
 
         reply = self._chat_with_tools(messages, streaming=False)
-        self._finalize_turn(user_input, reply, emotion_state, is_owner=is_owner)
+        self._finalize_turn(user_input, reply, emotion_state, is_owner=is_owner, speaker=speaker)
         return reply
 
     def chat_stream(self, user_input: str, tone: str = "neutral", lang: Optional[str] = None,
-                    is_owner: bool = True):
+                    is_owner: bool = True, speaker: Optional[str] = None):
         """Generator: yields text deltas as the LLM produces them. Internally
         handles tool calls — if the LLM emits one, this generator runs it and
         keeps streaming the continuation. If the tool is CONFIRM tier,
         pending_action gets set and the LLM narrates what it's about to do.
 
         `is_owner=False` runs without the owner's private context and skips
-        persistent personal writes (see _finalize_turn)."""
+        persistent personal writes (see _finalize_turn). `speaker` is the
+        recognized name of a known non-owner."""
         prefix = self._handle_pending(user_input)
         if prefix == "_consumed":
             user_input = "(continue from where you were)"
@@ -183,7 +195,7 @@ class Companion:
         if lang:
             self.last_lang = lang
         messages = _conversation_messages(user_input, tone=tone, lang=self.last_lang,
-                                          is_owner=is_owner)
+                                          is_owner=is_owner, speaker=speaker)
         if prefix and prefix != "_consumed":
             messages.append({"role": "system", "content": prefix})
 
@@ -193,7 +205,7 @@ class Companion:
             yield token
 
         reply = "".join(parts).strip()
-        self._finalize_turn(user_input, reply, emotion_state, is_owner=is_owner)
+        self._finalize_turn(user_input, reply, emotion_state, is_owner=is_owner, speaker=speaker)
 
     # ---------- internal: tool-call loop ----------------------------------
 
@@ -352,14 +364,18 @@ class Companion:
         return ""
 
     def _finalize_turn(self, user_input: str, reply: str, emotion_state,
-                       is_owner: bool = True) -> None:
+                       is_owner: bool = True, speaker: Optional[str] = None) -> None:
         """Post-turn side effects: memory writes, episodic capture, identity update.
 
-        For a guest (``is_owner=False``) we persist nothing — a stranger must not
-        write into the owner's long-term memory, episodes, identity, or even the
-        replayed chat history. The turn happens, then it's forgotten.
+        Only the owner writes to long-term memory / episodes / identity / replayed
+        history — a non-owner must never pollute the owner's record. A recognized
+        household member just gets their last-seen stamp bumped; an unknown guest
+        leaves no trace at all.
         """
         if not is_owner:
+            if speaker:
+                import people
+                people.record_seen(speaker)
             return
         memory.save_memory(f"User said: {user_input}", kind="event")
         memory.save_memory(f"Companion replied: {reply}", kind="event")

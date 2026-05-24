@@ -1,23 +1,26 @@
-"""Speaker recognition — decides whether the current utterance is the enrolled
-owner's voice, so Jade can unlock personal memory only for them.
+"""Speaker recognition — identifies who is speaking so Jade can unlock the
+owner's personal memory only for them, and greet known household members by name.
 
 Engine: SpeechBrain ECAPA-TDNN (`speechbrain/spkrec-ecapa-voxceleb`) → 192-d
-speaker embeddings, compared to an enrolled voiceprint by cosine similarity.
+speaker embeddings, compared to enrolled voiceprints by cosine similarity.
+
+Profiles live in `speaker_profiles.npz`: one or more named voiceprints, exactly
+one flagged as the owner. (A pre-existing single-owner `voiceprint.npz` is
+migrated automatically.)
 
 Design principles
 -----------------
-* **Fail-open.** No voiceprint enrolled, or the model can't load? ``identify()``
-  returns ``owner=True`` so Jade behaves exactly as before. Voice gating is a
-  convenience, never a lock you can get stuck behind (a cold or a noisy room
-  must not lock you out of your own companion).
+* **Fail-open.** No profiles enrolled, or the model can't load? ``identify()``
+  returns owner=True so Jade behaves exactly as before — voice gating is a
+  convenience, never a lock you can get stuck behind.
 * **CPU by default.** Whisper and the LLM already want the GPU; ECAPA on a ~3s
   clip is well under 200ms on CPU. Override with ``JADE_SPEAKER_DEVICE=cuda``.
-* **Local + private.** The voiceprint is a 192-float vector saved next to the
-  other runtime state and gitignored. No raw audio is retained.
+* **Local + private.** Voiceprints are 192-float vectors saved next to the other
+  runtime state and gitignored. No raw audio is retained.
 
 This is good personalization, **not** a hard security boundary: a recording of
-your voice could pass, and the threshold trades off false-accepts vs. locking
-you out. We deliberately bias toward not locking the owner out.
+a voice could pass, and the threshold trades false-accepts vs. lockout. We bias
+toward not locking the owner out.
 """
 import os
 import threading
@@ -26,12 +29,13 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
-PROFILE_PATH = ROOT / "voiceprint.npz"
+PROFILES_PATH = ROOT / "speaker_profiles.npz"
+LEGACY_PATH = ROOT / "voiceprint.npz"   # single-owner format, auto-migrated
 MODEL_DIR = ROOT / "models" / "spkrec-ecapa-voxceleb"
 MODEL_SOURCE = "speechbrain/spkrec-ecapa-voxceleb"
 SAMPLE_RATE = 16000
 
-# Cosine similarity below this is never treated as the owner, even if a sloppy
+# Cosine similarity below this is never treated as a match, even if a sloppy
 # enrollment produced a looser adaptive threshold. ECAPA same/different speaker
 # typically separates around here on clean speech.
 _THRESHOLD_FLOOR = 0.25
@@ -39,8 +43,8 @@ _THRESHOLD_CEIL = 0.55
 
 _model = None
 _model_tried = False
-_profile_cache = None
-_profile_mtime = None
+_profiles_cache = None
+_profiles_mtime = None
 _warned = False
 
 
@@ -52,11 +56,7 @@ def _device() -> str:
 
 
 def _load_model():
-    """Lazy-load ECAPA. Returns the classifier, or None if unavailable.
-
-    Caches the failure too (``_model_tried``) so a missing/broken install costs
-    one attempt, not one per utterance.
-    """
+    """Lazy-load ECAPA. Returns the classifier, or None if unavailable."""
     global _model, _model_tried, _warned
     if _model is not None:
         return _model
@@ -82,8 +82,7 @@ def _load_model():
 
 
 def warmup() -> None:
-    """Pre-load the model in a background thread so the first real utterance
-    doesn't pay the load cost. Only bothers if a voiceprint is enrolled."""
+    """Pre-load the model in a background thread. No-op unless someone enrolled."""
     if not is_enrolled():
         return
     threading.Thread(target=_load_model, name="speaker-warmup", daemon=True).start()
@@ -126,38 +125,86 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 # --------------------------------------------------------------------------- #
-# profile (voiceprint) persistence
+# profile store (named voiceprints)
 # --------------------------------------------------------------------------- #
+def _migrate_legacy():
+    """Turn a pre-existing single-owner voiceprint.npz into an owner profile."""
+    try:
+        d = np.load(LEGACY_PATH, allow_pickle=False)
+        return [{
+            "name": "owner",
+            "centroid": d["centroid"].astype(np.float32),
+            "threshold": float(d["threshold"]),
+            "owner": True,
+            "count": int(d["count"]),
+        }]
+    except Exception:
+        return []
+
+
+def _load_profiles():
+    """Return a list of profile dicts (cached by file mtime). May be empty."""
+    global _profiles_cache, _profiles_mtime
+    if PROFILES_PATH.exists():
+        mtime = PROFILES_PATH.stat().st_mtime
+        if _profiles_cache is not None and mtime == _profiles_mtime:
+            return _profiles_cache
+        data = np.load(PROFILES_PATH, allow_pickle=False)
+        names = [str(n) for n in data["names"]]
+        profiles = [{
+            "name": names[i],
+            "centroid": data["centroids"][i].astype(np.float32),
+            "threshold": float(data["thresholds"][i]),
+            "owner": bool(data["owners"][i]),
+            "count": int(data["counts"][i]),
+        } for i in range(len(names))]
+        _profiles_cache, _profiles_mtime = profiles, mtime
+        return profiles
+    # No profiles file — migrate a legacy single voiceprint if present.
+    if LEGACY_PATH.exists():
+        migrated = _migrate_legacy()
+        if migrated:
+            _save_profiles(migrated)
+            return migrated
+    _profiles_cache, _profiles_mtime = None, None
+    return []
+
+
+def _save_profiles(profiles) -> None:
+    global _profiles_cache, _profiles_mtime
+    np.savez(
+        PROFILES_PATH,
+        names=np.array([p["name"] for p in profiles], dtype="U64"),
+        centroids=np.vstack([p["centroid"] for p in profiles]).astype(np.float32),
+        thresholds=np.array([p["threshold"] for p in profiles], dtype=np.float32),
+        owners=np.array([p["owner"] for p in profiles], dtype=bool),
+        counts=np.array([p.get("count", 0) for p in profiles], dtype=np.int32),
+    )
+    _profiles_cache, _profiles_mtime = None, None  # force reload
+
+
 def is_enrolled() -> bool:
-    return PROFILE_PATH.exists()
+    return bool(_load_profiles())
 
 
-def load_profile():
-    """Return {centroid, threshold, count} or None. Cached by file mtime."""
-    global _profile_cache, _profile_mtime
-    if not PROFILE_PATH.exists():
-        _profile_cache, _profile_mtime = None, None
-        return None
-    mtime = PROFILE_PATH.stat().st_mtime
-    if _profile_cache is not None and mtime == _profile_mtime:
-        return _profile_cache
-    data = np.load(PROFILE_PATH, allow_pickle=False)
-    _profile_cache = {
-        "centroid": data["centroid"].astype(np.float32),
-        "threshold": float(data["threshold"]),
-        "count": int(data["count"]),
-    }
-    _profile_mtime = mtime
-    return _profile_cache
+def owner_name():
+    for p in _load_profiles():
+        if p["owner"]:
+            return p["name"]
+    return None
 
 
-def enroll_from_embeddings(embeddings: list) -> dict:
-    """Average several owner embeddings into a voiceprint and persist it.
+def list_profiles() -> list:
+    return [{"name": p["name"], "owner": p["owner"], "count": p["count"],
+             "threshold": p["threshold"]} for p in _load_profiles()]
 
-    The threshold is derived from how tightly the enrollment samples cluster:
-    the looser the owner's own samples, the more lenient we must be to avoid
-    rejecting them. Clamped to a sane band so a one-shot enrollment can't set
-    something absurd.
+
+def enroll_from_embeddings(embeddings: list, name: str = "owner",
+                           is_owner: bool = True) -> dict:
+    """Average several embeddings into a named voiceprint and persist it.
+
+    Replacing a name updates that profile. Enrolling a new owner clears the
+    owner flag on any previous owner.
     """
     embs = [e for e in embeddings if e is not None]
     if len(embs) < 2:
@@ -166,40 +213,44 @@ def enroll_from_embeddings(embeddings: list) -> dict:
     centroid = mat.mean(axis=0)
     centroid /= np.linalg.norm(centroid) or 1.0
 
-    # Self-consistency: each sample's similarity to the centroid.
     self_sims = np.array([_cosine(e, centroid) for e in embs])
     margin = float(os.environ.get("JADE_SPEAKER_MARGIN", "0.12"))
     thr = float(np.clip(self_sims.mean() - margin, _THRESHOLD_FLOOR, _THRESHOLD_CEIL))
 
-    np.savez(
-        PROFILE_PATH,
-        centroid=centroid.astype(np.float32),
-        threshold=np.float32(thr),
-        count=np.int32(len(embs)),
-    )
-    global _profile_cache, _profile_mtime
-    _profile_cache, _profile_mtime = None, None  # force reload
+    profiles = [p for p in _load_profiles() if p["name"] != name]
+    # First-ever enrollment is the owner regardless of the flag.
+    if not any(p["owner"] for p in profiles):
+        is_owner = True
+    if is_owner:
+        for p in profiles:
+            p["owner"] = False
+    profiles.append({
+        "name": name, "centroid": centroid.astype(np.float32),
+        "threshold": thr, "owner": bool(is_owner), "count": len(embs),
+    })
+    _save_profiles(profiles)
     return {
-        "count": len(embs),
-        "threshold": thr,
-        "self_sim_mean": float(self_sims.mean()),
+        "name": name, "owner": bool(is_owner), "count": len(embs),
+        "threshold": thr, "self_sim_mean": float(self_sims.mean()),
         "self_sim_min": float(self_sims.min()),
     }
 
 
-def enroll(samples: list) -> dict:
-    """Embed a list of 16 kHz float32 clips and save the voiceprint."""
-    return enroll_from_embeddings([embed_float(s) for s in samples])
+def enroll(samples: list, name: str = "owner", is_owner: bool = True) -> dict:
+    """Embed a list of 16 kHz float32 clips and save a named voiceprint."""
+    return enroll_from_embeddings([embed_float(s) for s in samples], name, is_owner)
 
 
 def reset() -> bool:
-    """Delete the enrolled voiceprint. Returns True if one existed."""
-    global _profile_cache, _profile_mtime
-    _profile_cache, _profile_mtime = None, None
-    if PROFILE_PATH.exists():
-        PROFILE_PATH.unlink()
-        return True
-    return False
+    """Delete ALL enrolled profiles (and any legacy voiceprint). True if any existed."""
+    global _profiles_cache, _profiles_mtime
+    _profiles_cache, _profiles_mtime = None, None
+    removed = False
+    for path in (PROFILES_PATH, LEGACY_PATH):
+        if path.exists():
+            path.unlink()
+            removed = True
+    return removed
 
 
 # --------------------------------------------------------------------------- #
@@ -216,26 +267,33 @@ def _threshold(profile: dict) -> float:
 
 
 def identify(segment_bytes: bytes, sample_rate: int = SAMPLE_RATE):
-    """Return ``(is_owner, score)`` for an utterance.
+    """Return ``(is_owner, name, score)`` for an utterance.
 
-    Fail-open: if nothing is enrolled, the model is unavailable, or anything
-    throws, returns ``(True, 1.0)`` so Jade keeps working as before.
+    - nothing enrolled / model down / error → ``(True, None, 1.0)`` (fail-open)
+    - best profile above its threshold        → ``(profile.owner, name, score)``
+    - profiles exist but none match           → ``(False, None, best_score)`` (guest)
     """
-    profile = load_profile()
-    if profile is None:
-        return True, 1.0
+    profiles = _load_profiles()
+    if not profiles:
+        return True, None, 1.0
     try:
         emb = embed_pcm(segment_bytes, sample_rate)
         if emb is None:
-            return True, 1.0
-        score = _cosine(emb, profile["centroid"])
-        return score >= _threshold(profile), score
+            return True, None, 1.0
+        best, best_score = None, -1.0
+        for p in profiles:
+            s = _cosine(emb, p["centroid"])
+            if s > best_score:
+                best, best_score = p, s
+        if best is not None and best_score >= _threshold(best):
+            return bool(best["owner"]), best["name"], best_score
+        return False, None, best_score
     except Exception as e:  # noqa: BLE001
         global _warned
         if not _warned:
             print(f"[speaker] identify failed, treating as owner: {type(e).__name__}: {e}")
             _warned = True
-        return True, 1.0
+        return True, None, 1.0
 
 
 # --------------------------------------------------------------------------- #
@@ -249,7 +307,7 @@ def record_samples(n: int = 5, seconds: float = 4.0) -> list:
     import sounddevice as sd
     import time
 
-    print(f"\nLet's learn your voice. I'll record {n} short clips of ~{int(seconds)}s each.")
+    print(f"\nLet's learn this voice. I'll record {n} short clips of ~{int(seconds)}s each.")
     print("Speak naturally — say anything (read a sentence, describe your day).\n")
     samples = []
     for i in range(n):

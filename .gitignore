@@ -27,5 +27,7 @@ reminders.json
 system.log
 temp.wav
 
-# enrolled voiceprint (biometric — never commit)
+# enrolled voiceprints (biometric — never commit) + household profiles
 voiceprint.npz
+speaker_profiles.npz
+people.json

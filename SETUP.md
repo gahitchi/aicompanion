@@ -147,27 +147,31 @@ Where it installs (handled by `autostart.py`):
 
 ## Voice recognition (optional)
 
-Jade can learn the owner's voice and load personal memories **only** when she
-hears it. Unrecognized voices get a warm but impersonal Jade who won't reveal
-or write anything about the owner.
+Jade can learn voices. The **owner**'s voice unlocks personal memory; recognized
+**household members** are greeted by name but never see the owner's private
+memory; unknown voices get a warm but impersonal Jade.
 
 ```bash
-jade --enroll           # record ~5 short clips, builds your voiceprint
-jade --enroll-status    # show whether one is enrolled + the match threshold
-jade --reset-voiceprint # delete it (every voice is treated as owner again)
+jade --enroll            # enroll the owner (the one whose memory unlocks)
+jade --enroll --name Sam # enroll a household member she'll greet by name
+jade --enroll-status     # list all enrolled voiceprints
+jade --reset-voiceprint  # delete them all (every voice treated as owner again)
 ```
 
 - Engine: SpeechBrain ECAPA-TDNN (`speechbrain/spkrec-ecapa-voxceleb`), CPU by
   default so it doesn't compete with the LLM for VRAM. Model caches under
   `models/spkrec-ecapa-voxceleb/`.
-- The voiceprint is a 192-float vector in `voiceprint.npz` (gitignored, no raw
-  audio kept). It's personalization, **not** hard security — and it **fails
-  open**: with no voiceprint enrolled (or `speechbrain` missing), Jade behaves
-  exactly as before. Typed CLI/API input is always treated as the owner.
+- Voiceprints are 192-float vectors in `speaker_profiles.npz`; recognized
+  members get a light profile in `people.json` (both gitignored, no raw audio
+  kept). It's personalization, **not** hard security — and it **fails open**:
+  with nothing enrolled (or `speechbrain` missing) every voice is the owner, so
+  Jade behaves exactly as before. Typed CLI/API input is always the owner.
+- Only the owner writes to long-term memory; a member's turns bump their
+  last-seen but never touch the owner's record.
 - Tune matching with `JADE_SPEAKER_THRESHOLD` in `.env` (lower = more lenient).
-  If Jade keeps treating you as a guest, lower it or re-enroll somewhere quiet.
+  If recognition is flaky, lower it or re-enroll somewhere quiet.
 - Run `jade --enroll` in a normal terminal (it needs the mic), then restart
-  Jade so the running service picks up the voiceprint.
+  Jade so the running service picks up the new voiceprint.
 
 ---
 

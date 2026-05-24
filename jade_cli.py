@@ -8,9 +8,10 @@ command on PATH — no bash wrapper needed.
   jade --no-welcome        skip the spoken greeting
   jade --install-autostart start automatically at login (systemd/launchd/Startup)
   jade --uninstall-autostart  remove the login autostart
-  jade --enroll            teach Jade your voice (unlocks personal memory for you only)
-  jade --enroll-status     show whether a voiceprint is enrolled
-  jade --reset-voiceprint  delete the voiceprint (turns voice gating off)
+  jade --enroll            teach Jade your voice (the owner — unlocks personal memory)
+  jade --enroll --name Sam enroll a household member she'll greet by name
+  jade --enroll-status     list enrolled voiceprints
+  jade --reset-voiceprint  delete all voiceprints (turns voice gating off)
 """
 import envconfig  # noqa: F401  — load .env before any module reads os.environ
 import argparse
@@ -28,13 +29,17 @@ def main(argv=None) -> None:
     ap.add_argument("--uninstall-autostart", action="store_true",
                     help="Remove the login autostart entry.")
     ap.add_argument("--enroll", action="store_true",
-                    help="Record your voice so Jade unlocks personal memory only for you.")
+                    help="Record a voiceprint. Owner by default; add --name for a household member.")
+    ap.add_argument("--name", metavar="NAME",
+                    help="Name for this voiceprint (a non-owner household member).")
+    ap.add_argument("--owner", action="store_true",
+                    help="Enroll/replace the owner (the one whose personal memory unlocks).")
     ap.add_argument("--enroll-samples", type=int, default=5, metavar="N",
                     help="Number of voice clips to record when enrolling (default 5).")
     ap.add_argument("--enroll-status", action="store_true",
-                    help="Show whether a voiceprint is enrolled.")
+                    help="List enrolled voiceprints.")
     ap.add_argument("--reset-voiceprint", action="store_true",
-                    help="Delete the enrolled voiceprint (disables speaker gating).")
+                    help="Delete all enrolled voiceprints (disables speaker gating).")
     args = ap.parse_args(argv)
 
     if args.install_autostart or args.uninstall_autostart:
@@ -63,20 +68,27 @@ def _voiceprint_command(args) -> None:
     from voice import speaker_id
 
     if args.reset_voiceprint:
-        print("Voiceprint deleted — Jade will treat every voice as the owner again."
-              if speaker_id.reset() else "No voiceprint was enrolled.")
+        print("All voiceprints deleted — Jade will treat every voice as the owner again."
+              if speaker_id.reset() else "No voiceprints were enrolled.")
         return
 
     if args.enroll_status:
-        if speaker_id.is_enrolled():
-            p = speaker_id.load_profile()
-            print(f"Enrolled: {p['count']} sample(s), match threshold {p['threshold']:.3f}.")
-            print(f"Profile: {speaker_id.PROFILE_PATH}")
-        else:
-            print("No voiceprint enrolled. Run `jade --enroll` to set one up.")
+        profiles = speaker_id.list_profiles()
+        if not profiles:
+            print("No voiceprints enrolled. Run `jade --enroll` to set one up.")
+            return
+        print(f"Enrolled voiceprints ({len(profiles)}):")
+        for p in profiles:
+            tag = " (owner)" if p["owner"] else ""
+            print(f"  - {p['name']}{tag}: {p['count']} clip(s), threshold {p['threshold']:.3f}")
         return
 
     # --enroll
+    name = (args.name or "owner").strip()
+    is_owner = args.owner or not args.name  # no name given → enrolling the owner
+    role = "the owner" if is_owner else f"household member '{name}'"
+
+    print(f"Enrolling {role}.")
     print("Loading the speaker-recognition model (first run downloads ~20MB)...")
     if speaker_id._load_model() is None:
         print("Speaker recognition isn't available (is `speechbrain` installed?).")
@@ -88,17 +100,20 @@ def _voiceprint_command(args) -> None:
         print("\nNot enough usable clips (need at least 2). Try again somewhere quieter.")
         sys.exit(1)
 
-    print("Building your voiceprint...")
-    stats = speaker_id.enroll(samples)
-    print(f"\n✓ Enrolled from {stats['count']} clips.")
+    print(f"Building the voiceprint for {name}...")
+    stats = speaker_id.enroll(samples, name=name, is_owner=is_owner)
+    print(f"\n✓ Enrolled {stats['name']}{' (owner)' if stats['owner'] else ''} "
+          f"from {stats['count']} clips.")
     print(f"  Self-consistency: mean {stats['self_sim_mean']:.3f}, "
           f"min {stats['self_sim_min']:.3f}")
     print(f"  Match threshold:  {stats['threshold']:.3f}")
     if stats["self_sim_min"] < 0.4:
-        print("  ! Your samples varied a lot — if Jade keeps treating you as a guest,")
-        print("    re-enroll in a quieter spot, or lower JADE_SPEAKER_THRESHOLD in .env.")
-    print("\nJade will now load your personal memories only when she hears your voice.")
-    print("Tune sensitivity any time with JADE_SPEAKER_THRESHOLD (lower = more lenient).")
+        print("  ! Samples varied a lot — if recognition is flaky, re-enroll in a")
+        print("    quieter spot, or lower JADE_SPEAKER_THRESHOLD in .env.")
+    if stats["owner"]:
+        print("\nJade will load personal memories only when she hears the owner's voice.")
+    else:
+        print(f"\nJade will greet {name} by name; the owner's private memory stays private.")
 
 
 if __name__ == "__main__":

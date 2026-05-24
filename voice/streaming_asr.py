@@ -324,7 +324,9 @@ def stream_recognition():
                     # Who said it? (owner vs. someone else.) Fail-open to owner
                     # when no voiceprint is enrolled, so this is a cheap no-op
                     # until the user runs `jade --enroll`.
-                    is_owner, spk_score = speaker_id.identify(segment_bytes, SAMPLE_RATE)
+                    is_owner, speaker_name, spk_score = speaker_id.identify(
+                        segment_bytes, SAMPLE_RATE)
                     feats["is_owner"] = is_owner
+                    feats["speaker"] = speaker_name
                     feats["speaker_score"] = spk_score
                     yield text.lower(), feats
