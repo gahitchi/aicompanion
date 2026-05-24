@@ -47,6 +47,13 @@ def _run_voice():
     run_voice()
 
 
+def _run_proactive():
+    """Drain the task_queue (proactive messages + due reminders) and speak them."""
+    from voice.conversation_controller import proactive_speaker
+    from main import task_queue
+    proactive_speaker(task_queue)
+
+
 def _run_tray():
     from tray import run_tray
     run_tray()
@@ -156,6 +163,7 @@ def main():
 
     _start_thread("autonomous", autonomous_loop, task_queue)
     _start_thread("scheduler", scheduler_loop, task_queue)
+    _start_thread("proactive", _run_proactive)
     _start_thread("server", _run_server)
     voice_thread = _start_thread("voice", _run_voice)
 

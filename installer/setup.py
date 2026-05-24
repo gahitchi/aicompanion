@@ -174,6 +174,11 @@ def write_env(model: str):
         "# own voice keeps interrupting her, raise JADE_BARGE_RMS or set =0.\n"
         "# JADE_BARGE_IN=1\n"
         "# JADE_BARGE_RMS=1500\n"
+        "# Proactivity cadence + quiet hours (24h, wraps midnight) + post-speech cooldown.\n"
+        "# JADE_PROACTIVE_INTERVAL=900\n"
+        "# JADE_QUIET_START=23\n"
+        "# JADE_QUIET_END=8\n"
+        "# JADE_PROACTIVE_COOLDOWN=30\n"
     )
     ok(f"wrote {env}")
 

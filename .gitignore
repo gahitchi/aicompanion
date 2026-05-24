@@ -23,6 +23,7 @@ episodes.json
 user.json
 followups.json
 consolidator_state.json
+reminders.json
 system.log
 temp.wav
 

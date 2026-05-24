@@ -10,15 +10,70 @@ Each transcription carries acoustic features (RMS, peak) from the speech
 segment. We classify the tone (soft / neutral / intense) and pass it through
 the LLM prompt + TTS speed/volume so the Companion's response matches.
 """
+import os
+import time
+
 import events
+import shared_state
 from main import companion
+from shared_state import SPEAKING, STOP_EVENT
 from voice.streaming_asr import stream_recognition
 from voice.text_to_speech import speak, speak_stream
 from voice.tone import classify, update_tone_history, current_mode
 from voice.wake_engine import detect_and_strip
 
 
-SLEEP_PHRASES = {"stop listening", "goodbye companion", "go to sleep"}
+SLEEP_PHRASES = {"stop listening", "goodbye companion", "go to sleep",
+                 "goodbye jade", "stop listening jade"}
+
+# Proactive speech gating.
+_QUIET_START = int(os.environ.get("JADE_QUIET_START", "23"))
+_QUIET_END = int(os.environ.get("JADE_QUIET_END", "8"))
+_PROACTIVE_COOLDOWN = float(os.environ.get("JADE_PROACTIVE_COOLDOWN", "30"))
+
+
+def _in_quiet_hours(now=None) -> bool:
+    h = time.localtime(now).tm_hour
+    if _QUIET_START == _QUIET_END:
+        return False
+    if _QUIET_START < _QUIET_END:
+        return _QUIET_START <= h < _QUIET_END
+    return h >= _QUIET_START or h < _QUIET_END  # wraps past midnight
+
+
+def proactive_speaker(queue) -> None:
+    """Drain the shared task_queue and voice events when it's a good moment.
+
+    This is the consumer the autonomous loop + scheduler were missing — before,
+    proactive messages and reminders were enqueued but never spoken. Reminders
+    fire whenever she isn't already talking; proactive check-ins additionally
+    respect quiet hours and don't interject right after the user spoke.
+    """
+    while not STOP_EVENT.is_set():
+        time.sleep(1)
+        if SPEAKING.is_set() or not queue:
+            continue
+        try:
+            event = queue.pop(0)
+        except IndexError:
+            continue
+        content = (event.get("content") or "").strip()
+        if not content:
+            continue
+        etype = event.get("type")
+        now = time.time()
+        if etype != "reminder":
+            if _in_quiet_hours(now):
+                continue  # drop proactive chatter overnight
+            if now - shared_state.LAST_USER_SPEECH < _PROACTIVE_COOLDOWN:
+                continue  # mid-conversation — don't talk over the flow
+        print(f"[proactive/{etype}] {content}")
+        try:
+            events.publish({"type": "said", "text": content,
+                            "proactive": True, "kind": etype})
+        except Exception:
+            pass
+        speak(content)
 
 
 def _is_sleep(text: str) -> bool:
@@ -63,6 +118,8 @@ def run_voice() -> None:
         text = text.strip()
         if not text:
             continue
+        # Stamp so the proactive speaker won't talk over an active conversation.
+        shared_state.LAST_USER_SPEECH = time.time()
         tone = classify(text, features)
         # Push the per-turn classification into the rolling history so the
         # agent's prompt sees the sustained conversational mode.

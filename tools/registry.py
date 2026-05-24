@@ -27,6 +27,7 @@ from tools.media import (
     media_set_volume, media_status,
 )
 from tools.python_exec import python_exec
+from tools.reminders import cancel_reminder, list_reminders, set_reminder
 from tools.runner import run_command
 from tools.safety import bypass
 from tools.system import battery_status, current_time, notify, screenshot
@@ -507,6 +508,52 @@ TOOLS = {
                         "kind": {"type": "string", "default": "event"},
                     },
                     "required": ["text"],
+                },
+            },
+        },
+    },
+    # ---- reminders -------------------------------------------------------
+    "set_reminder": {
+        "fn": set_reminder,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "set_reminder",
+                "description": "Set a spoken reminder for later. Use for 'remind me in 20 minutes to X', 'remind me at 6pm to Y'. Convert the time to in_seconds (relative) OR at_time ('HH:MM' or ISO). Put only the thing to do in message.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string", "description": "What to remind them about (the action only)."},
+                        "in_seconds": {"type": "integer", "description": "Fire this many seconds from now (e.g. 20 min = 1200)."},
+                        "at_time": {"type": "string", "description": "Clock time 'HH:MM' (next occurrence) or ISO datetime."},
+                    },
+                    "required": ["message"],
+                },
+            },
+        },
+    },
+    "list_reminders": {
+        "fn": list_reminders,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "list_reminders",
+                "description": "List the user's pending reminders. Use for 'what are my reminders', 'what did I ask you to remind me about'.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    },
+    "cancel_reminder": {
+        "fn": cancel_reminder,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "cancel_reminder",
+                "description": "Cancel a pending reminder by its id (get ids from list_reminders).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"],
                 },
             },
         },
