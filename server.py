@@ -7,6 +7,7 @@ import envconfig  # noqa: F401  — load .env before any module reads os.environ
 import asyncio
 import json
 import os
+import time
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -34,7 +35,17 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    reply = companion.chat(req.text, lang=req.lang)
+    # Fold typed chat into the same event stream the voice loop uses, so the
+    # dashboard's sphere + history react to it exactly like spoken turns.
+    events.publish({"type": "heard", "text": req.text, "source": "text"})
+    events.publish({"type": "status", "state": "thinking"})
+    try:
+        reply = companion.chat(req.text, lang=req.lang)
+    except Exception as e:
+        events.publish({"type": "status", "state": "idle"})
+        return JSONResponse({"error": str(e)}, status_code=500)
+    events.publish({"type": "said", "text": reply})
+    events.publish({"type": "status", "state": "idle"})
     return {"reply": reply}
 
 
@@ -60,6 +71,66 @@ def state():
 @app.get("/memory")
 def get_memory(q: str = "recent", k: int = 10):
     return {"query": q, "results": memory.get_memories(q, k=k)}
+
+
+def _humanize_in(seconds: float) -> str:
+    seconds = int(max(0, seconds))
+    if seconds < 60:
+        return f"in {seconds}s"
+    if seconds < 3600:
+        return f"in {seconds // 60} min"
+    if seconds < 86400:
+        return f"in {seconds // 3600}h {(seconds % 3600) // 60}m"
+    return f"in {seconds // 86400}d"
+
+
+@app.get("/overview")
+def overview():
+    """Aggregate live state for the dashboard panels. Every section is guarded so
+    a missing/unconfigured feature degrades to empty rather than failing the call."""
+    out = {"emotion": {}, "relationship": {}, "timers": [], "reminders": [],
+           "flashcards_due": 0, "spending": None, "calendar": None}
+    now = time.time()
+    try:
+        out["emotion"] = load_emotion()
+    except Exception:
+        pass
+    try:
+        out["relationship"] = load_identity().get("relationship_state", {})
+    except Exception:
+        pass
+    try:
+        import scheduler
+        out["timers"] = [{"label": t.get("message", "timer"),
+                          "seconds_left": max(0, int(t["run_at"] - now))}
+                         for t in scheduler.list_reminders(kind="timer")]
+        out["reminders"] = [{"message": t.get("message", ""),
+                             "in": _humanize_in(t["run_at"] - now)}
+                            for t in scheduler.list_reminders(kind="reminder")[:5]]
+    except Exception:
+        pass
+    try:
+        from tools import flashcards
+        out["flashcards_due"] = len(flashcards._due_cards(flashcards._load()))
+    except Exception:
+        pass
+    try:
+        from tools import expenses
+        data = expenses._load()
+        start = expenses._period_start("week")
+        total = round(sum(e["amount"] for e in data["log"]
+                          if expenses._in_period(e["date"], start)), 2)
+        out["spending"] = {"total": total, "currency": expenses._currency(),
+                           "period": "week"}
+    except Exception:
+        pass
+    try:
+        from tools import gcal
+        if gcal._service() is not None:
+            out["calendar"] = gcal.list_events("today")
+    except Exception:
+        pass
+    return out
 
 
 @app.get("/goals")

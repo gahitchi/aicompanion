@@ -8,6 +8,32 @@
 </head>
 <body>
 
+<!-- Drawer toggle (top-left edge) -->
+<button id="panel-toggle" class="panel-toggle" aria-label="Toggle status panel" aria-expanded="false" aria-controls="panel">
+  <span></span><span></span><span></span>
+</button>
+
+<!-- Slide-in status + features panel -->
+<aside class="panel" id="panel" aria-hidden="true">
+  <section class="panel-sec">
+    <h2>Now</h2>
+    <div class="meter"><label>mood</label><div class="bar"><span id="mood-bar"></span></div></div>
+    <div class="meter"><label>energy</label><div class="bar"><span id="energy-bar"></span></div></div>
+    <div class="kv"><span>mode</span><b id="p-mode">casual</b></div>
+    <div class="kv"><span>state</span><b id="p-wake">asleep</b></div>
+  </section>
+
+  <section class="panel-sec" id="cards-sec">
+    <h2>At a glance</h2>
+    <div id="cards" class="cards"></div>
+  </section>
+
+  <section class="panel-sec">
+    <h2>Activity</h2>
+    <div id="activity" class="activity"></div>
+  </section>
+</aside>
+
 <main class="stage">
   <div class="sphere-wrap" id="sphere-wrap" data-state="idle" data-tone="neutral" data-mode="casual">
     <div class="halo"></div>
@@ -29,12 +55,19 @@
   </div>
 
   <div class="latest" id="latest"></div>
-
-  <details class="history">
-    <summary>conversation</summary>
-    <div id="log"></div>
-  </details>
 </main>
+
+<!-- Type-to-chat bar -->
+<form class="composer" id="composer" autocomplete="off">
+  <input id="composer-input" type="text" name="msg"
+         placeholder="say something to Jade…" aria-label="Message to Jade" />
+  <button type="submit" id="composer-send" aria-label="Send">↵</button>
+</form>
+
+<details class="history">
+  <summary>conversation</summary>
+  <div id="log"></div>
+</details>
 
 <script src="app.js"></script>
 </body>
