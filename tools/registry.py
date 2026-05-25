@@ -46,6 +46,8 @@ from tools.contacts import add_contact, remove_contact, show_contacts
 from tools.notes import recall_notes, save_doc, take_note
 from tools.commute import get_commute, leave_by
 from tools.convert import convert
+from tools.modes import end_game, roleplay_as, start_game, stop_roleplay
+from tools.journal import add_journal_entry, weekly_reflection
 import memory
 
 
@@ -1081,6 +1083,79 @@ TOOLS = {
                     },
                     "required": ["value", "from_unit", "to_unit"],
                 },
+            },
+        },
+    },
+
+    # ---- games & roleplay ------------------------------------------------
+    "start_game": {
+        "fn": start_game,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "start_game",
+                "description": "Start a voice game and host it. Use for 'let's play a game', 'play 20 questions', 'quiz me'. kind: 20questions, trivia, riddles, wordchain, or wouldyourather; leave blank to offer a choice.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"kind": {"type": "string", "default": ""}},
+                },
+            },
+        },
+    },
+    "end_game": {
+        "fn": end_game,
+        "schema": {"type": "function", "function": {"name": "end_game",
+                   "description": "Stop the current game and go back to normal conversation. Use when the user wants to quit playing.",
+                   "parameters": {"type": "object", "properties": {}}}},
+    },
+    "roleplay_as": {
+        "fn": roleplay_as,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "roleplay_as",
+                "description": "Take on a character or speaking style until told to stop. Use for 'pretend to be a pirate', 'talk like a noir detective', 'be Shakespeare for a bit'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"character": {"type": "string", "description": "Who/what to be, e.g. 'a pirate'."}},
+                    "required": ["character"],
+                },
+            },
+        },
+    },
+    "stop_roleplay": {
+        "fn": stop_roleplay,
+        "schema": {"type": "function", "function": {"name": "stop_roleplay",
+                   "description": "Drop the current character and be yourself again. Use for 'okay, be yourself', 'stop the act', 'back to normal'.",
+                   "parameters": {"type": "object", "properties": {}}}},
+    },
+
+    # ---- mood journal (owner-only) ---------------------------------------
+    "add_journal_entry": {
+        "fn": add_journal_entry,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "add_journal_entry",
+                "description": "Save a dated journal entry about the user's day or feelings. Use for 'journal that…', 'add to my journal', or when they reflect on how their day went and it's worth keeping.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                },
+            },
+        },
+    },
+    "weekly_reflection": {
+        "fn": weekly_reflection,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "weekly_reflection",
+                "description": "Reflect warmly on the user's recent journal entries and mood. Use for 'how has my week been', 'reflect on my journal', 'how have I been doing lately'.",
+                "parameters": {"type": "object", "properties": {}},
             },
         },
     },

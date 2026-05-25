@@ -121,6 +121,13 @@ def _conversation_messages(user_input: str, tone: str = "neutral", lang: str = "
             f"language mid-reply. Stay in {lang_name} until they switch back."
         )
 
+    # Transient game / roleplay mode (set by tools/modes.py) layered on top of
+    # the persona for this turn. Cleared on its own timeout or by the stop tools.
+    from session import active_instruction
+    mode_text = active_instruction()
+    if mode_text:
+        context_block.append(mode_text)
+
     system = _system_prompt("\n\n".join(context_block), include_identity=is_owner)
 
     messages = [{"role": "system", "content": system}]

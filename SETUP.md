@@ -288,6 +288,9 @@ All optional — most are tuning knobs. Set them in `.env` at the repo root.
 | `JADE_SPOTIFY_REDIRECT_URI` | `http://localhost:8888/callback` | Spotify OAuth redirect (must match the app) |
 | `JADE_HOME_LOCATION` / `JADE_WORK_LOCATION` | `JADE_WEATHER_LOCATION` / unset | Saved "home"/"work" places for commute ETAs |
 | `JADE_MAPS_API_KEY` | unset | Google Directions key for traffic-aware + transit ETAs (default is key-free OSRM driving) |
+| `JADE_JOURNAL_TIME` | `21:00` | Local `HH:MM` for the evening "how was your day?" check-in |
+| `JADE_REFLECTION_DAY` | `sun` | Weekday the weekly reflection replaces the check-in (mon…sun) |
+| `JADE_MODE_TIMEOUT` | `1800` | Seconds a game/roleplay stays active before auto-ending |
 | `ASR_DEBUG` | `0` | Per-second mic + VAD peak/voiced heartbeat |
 | `ASR_TONE_LOG` | `0` | Full feature + per-tone score dump per turn |
 
@@ -467,6 +470,33 @@ No external setup — just talk to her. Both are **owner-only** and private.
   - Save a document: "remember this article <url>" / "save this PDF for later" —
     she fetches, summarizes, and files it.
   - Recall: "what were my notes on the budget", "what did that article say about X".
+
+---
+
+## Companion features
+
+Beyond getting things done, Jade can just *be company*. No setup — only the
+journal is owner-only (it's your private inner life); games and roleplay are open
+to anyone in the house.
+
+- **Voice games** — "let's play a game", "play 20 questions", "quiz me", "give me
+  a riddle". She hosts 20 Questions, trivia, riddles, word chains, or
+  would-you-rather, conversationally. Say "stop" / "that's enough" to end (a game
+  also auto-ends after `JADE_MODE_TIMEOUT`, and a restart clears it).
+- **Roleplay / "be someone"** — "talk like a noir detective", "pretend to be a
+  pirate", "be Shakespeare for a bit". She takes on the voice and snaps back when
+  you say "okay, be yourself". Her underlying judgment stays in place — the
+  character is layered *on top of* her persona, not a replacement.
+- **Mood journal + reflection** (owner-only) — "journal that today was rough", and
+  she logs a dated entry with her read of your mood. Each evening (`JADE_JOURNAL_TIME`,
+  default 21:00) she gently asks how your day went and offers to note anything;
+  on `JADE_REFLECTION_DAY` (default Sunday) she gives a short weekly reflection
+  instead, naming patterns she's noticed. Ask any time: "how's my week been". The
+  evening check-in and reflection are spoken to the room and respect quiet hours.
+
+> These are conversational, so they shine over the **voice loop** or `python
+> main.py` rather than one-shot API calls — the "mode" lives across turns within a
+> running session.
 
 ---
 
