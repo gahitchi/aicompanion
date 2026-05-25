@@ -2,8 +2,9 @@
 
 A local, voice-first AI companion with a warm-friend personality. She listens,
 talks back in a natural voice, remembers your conversations, adapts to your
-tone, and can use tools (open apps, control media, search the web, read/write
-files) — all running **on your machine** against a local Ollama model. No cloud.
+tone, acts on the real world (email, calendar, weather, music, and more), and
+keeps you company — all running **on your machine** against a local Ollama
+model. No cloud.
 
 Runs on **Linux, macOS, and Windows**.
 
@@ -34,12 +35,23 @@ jade --interactive   # add the desktop window + tray
 
 ## What's inside
 
-- **Voice loop** — faster-whisper ASR + Kokoro TTS, VAD-gated, tone-adaptive.
+- **Voice loop** — faster-whisper ASR + Kokoro TTS, VAD-gated, tone-adaptive,
+  with "Hey Jade" wake word and barge-in.
 - **Memory** — Chroma vector store + episodic + an identity model that builds a
   picture of you over time.
-- **Speaker recognition** — ECAPA voiceprints gate personal memory to your voice
-  (fail-open, fully local; see SETUP).
-- **Tools** — filesystem, media, apps, web, with SAFE/CONFIRM/DENY safety tiers.
+- **Speaker recognition** — ECAPA voiceprints gate personal memory to your voice;
+  recognized household members are greeted by name (fail-open, fully local).
+- **Real-world tools** — email, Google Calendar, weather, news, timers, lists,
+  reminders, web search, document/PDF summarizing, unit/currency conversion,
+  commute ETAs, Spotify, a contacts book, and a daily spoken briefing.
+- **Companion features** — voice games, roleplay, a mood journal with weekly
+  reflections, voice memos & meeting transcription, spaced-repetition flashcards,
+  expense tracking, and on-demand jokes / facts / debate.
+- **Vision** — "look at my screen" / image Q&A via a local multimodal model.
+- **Tools framework** — ~80 tools with SAFE/CONFIRM/DENY safety tiers and
+  owner-gating, so guests never touch the owner's private tools.
+- **Web dashboard** — a reactive sphere at `localhost:8000` you can also type to,
+  with live mood/status and at-a-glance feature cards.
 - **Multilingual** — replies in the language you speak (English / Italian /
   Spanish by default).
 

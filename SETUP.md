@@ -578,8 +578,14 @@ Everything regenerates on first interaction. None of these are tracked by git.
 - `core/agent.py` — the `Companion` class (`chat`, `chat_stream`, `run_task`)
 - `llm.py` — single Ollama client
 - `memory.py` — Chroma wrapper; `persona.py` / `emotion.py` / `identity.py` / `episodic_memory.py` / `user_model.py` — personality + state
-- `tools/` — agent tools (filesystem, system, apps, media, web, reminders, vision, safety tiers)
+- `tools/` — agent tools registered in `tools/registry.py` (~80 tools with SAFE/CONFIRM/DENY tiers + owner-gating): filesystem, system, apps, media, web, vision; real-world (`mail`, `gcal`, `weather`, `news`, `timers`, `reminders`, `lists`, `summarize`, `spotify`, `contacts`, `commute`, `convert`, `briefing`); and companion (`modes` games/roleplay, `journal`, `memo`, `expenses`, `flashcards`, `fun`). Shared helpers: `geo.py`, `safety.py`, `filesystem._Result` confirm sentinel
+- `session.py` — transient game/roleplay "mode" layered onto the prompt by `core/agent.py`
 - `voice/` — ASR (`streaming_asr.py`), TTS (`text_to_speech.py`), wake word, tone classifier (`tone.py`), speaker ID (`speaker_id.py`), conversation controller
-- `server.py` — unified FastAPI; `ui/window.py` — tk window; `tray.py` — system tray
-- `autonomous_loop.py` — proactive in-character messages; `scheduler.py` — time-based tasks
+- `server.py` — unified FastAPI + `/overview` aggregate; `ui/static/` — the reactive-sphere web dashboard (type-to-chat, status panel, feature cards); `ui/window.py` — tk window; `tray.py` — system tray
+- `autonomous_loop.py` — proactive in-character messages; `scheduler.py` — time-based tasks; the daily `briefing_loop`/`nudge_loop`/`journal_loop`/`flashcards_loop` daemon threads (started in `launcher.py`) enqueue spoken items the `proactive_speaker` voices
 - `tests/test_cross_platform.py` — the CI import/autostart smoke test
+
+> The package directories (`core/`, `tools/`, `voice/`, `ui/`) each carry an
+> `__init__.py` so they're regular packages — important because some dependencies
+> (e.g. `speechbrain`) also ship a top-level `tools/`, and without it Python would
+> merge them into Jade's by namespace.
