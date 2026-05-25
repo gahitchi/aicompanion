@@ -21,5 +21,6 @@ py-modules = [
     "persona", "emotion", "identity", "episodic_memory", "memory_consolidator",
     "user_model", "events", "state", "shared_state", "scheduler",
     "autonomous_loop", "server", "main", "tray", "audit_tail",
+    "envconfig", "people", "session",
 ]
 packages = ["core", "tools", "voice", "ui"]
