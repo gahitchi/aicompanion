@@ -19,7 +19,8 @@ from main import companion
 from shared_state import SPEAKING, STOP_EVENT
 from voice.streaming_asr import stream_recognition
 from voice.text_to_speech import speak, speak_stream
-from voice.tone import classify, update_tone_history, current_mode
+import mood
+from voice.tone import classify
 from voice.wake_engine import detect_and_strip
 
 
@@ -85,18 +86,23 @@ def _is_sleep(text: str) -> bool:
 
 
 def _handle_turn(text: str, tone: str = "neutral", lang: str = "en",
-                 is_owner: bool = True, speaker: str = None) -> None:
+                 is_owner: bool = True, speaker: str = None,
+                 features: dict = None) -> None:
     """Run one user turn through the LLM and speak the reply, matching tone.
 
     Streams tokens straight into TTS so the first sentence plays while the
     LLM is still generating the rest. `is_owner` gates personal memory: when
     the speaker isn't the enrolled owner, the agent runs without their private
     context. `speaker` is the recognized name (a known household member) or None.
+    `features` are the turn's acoustics — passed through so the agent can feed
+    the sticky-mood signal.
     """
+    person = mood.OWNER if is_owner else speaker
     events.publish({"type": "status", "state": "thinking"})
     try:
         token_stream = companion.chat_stream(text, tone=tone, lang=lang,
-                                             is_owner=is_owner, speaker=speaker)
+                                             is_owner=is_owner, speaker=speaker,
+                                             features=features)
         events.publish({"type": "status", "state": "speaking"})
         response = speak_stream(token_stream, tone=tone, lang=lang)
     except Exception as e:
@@ -105,10 +111,11 @@ def _handle_turn(text: str, tone: str = "neutral", lang: str = "en",
         speak("Hm, something's off on my end. Try again?")
         return
     response = response.strip()
-    print(f"[said]  ({tone}/{lang}) {response}")
+    mood_now = mood.current(person) if person else mood.NEUTRAL
+    print(f"[said]  ({tone}/{mood_now}/{lang}) {response}")
     events.publish({
-        "type": "said", "text": response, "tone": tone, "mode": current_mode(),
-        "lang": lang,
+        "type": "said", "text": response, "tone": tone,
+        "mood": mood_now, "mode": mood_now, "lang": lang,
     })
     events.publish({"type": "status", "state": "listening"})
 
@@ -125,19 +132,21 @@ def run_voice() -> None:
         # Stamp so the proactive speaker won't talk over an active conversation.
         shared_state.LAST_USER_SPEECH = time.time()
         tone = classify(text, features)
-        # Push the per-turn classification into the rolling history so the
-        # agent's prompt sees the sustained conversational mode.
-        mode = update_tone_history(tone)
         rms = features.get("rms", 0)
         lang = features.get("detected_lang", "en")
         is_owner = features.get("is_owner", True)
         speaker = features.get("speaker")
         score = features.get("speaker_score", 0)
+        person = mood.OWNER if is_owner else (speaker or None)
+        # Mood as it stands before this turn (the agent advances it during the
+        # turn). Shown on the dashboard; 'mode' kept as an alias for old clients.
+        cur_mood = mood.current(person) if person else mood.NEUTRAL
         who = "owner" if is_owner else (f"{speaker}({score:.2f})" if speaker
                                         else f"guest({score:.2f})")
-        print(f"[heard] ({tone}/{mode}/{lang}/{who} rms={rms:.0f}) {text}")
+        print(f"[heard] ({tone}/{cur_mood}/{lang}/{who} rms={rms:.0f}) {text}")
         events.publish({
-            "type": "heard", "text": text, "tone": tone, "mode": mode,
+            "type": "heard", "text": text, "tone": tone,
+            "mood": cur_mood, "mode": cur_mood,
             "rms": round(rms, 1), "active": active, "lang": lang,
             "is_owner": is_owner, "speaker": speaker,
         })
@@ -150,7 +159,8 @@ def run_voice() -> None:
             active = True
             events.publish({"type": "wake", "active": True})
             if remainder:
-                _handle_turn(remainder, tone=tone, lang=lang, is_owner=is_owner, speaker=speaker)
+                _handle_turn(remainder, tone=tone, lang=lang, is_owner=is_owner,
+                             speaker=speaker, features=features)
             else:
                 events.publish({"type": "status", "state": "speaking"})
                 speak("Yeah?")
@@ -165,4 +175,5 @@ def run_voice() -> None:
             events.publish({"type": "status", "state": "idle"})
             continue
 
-        _handle_turn(text, tone=tone, lang=lang, is_owner=is_owner, speaker=speaker)
+        _handle_turn(text, tone=tone, lang=lang, is_owner=is_owner,
+                     speaker=speaker, features=features)

@@ -10,11 +10,11 @@ from typing import Optional
 
 import llm
 import memory
+import mood
+import profiles
 from persona import get_persona_prompt
 from emotion import load as load_emotion, update_from_input as update_emotion
-from identity import load as load_identity, update_from_interaction
 from episodic_memory import add_episode, retrieve_recent
-from user_model import update_user, build_user_context
 from state import history
 from tools import registry
 from tools.filesystem import _Result as _ToolPending
@@ -28,14 +28,15 @@ EPISODIC_TURNS = 5
 MEMORY_K = 3
 
 
-def _system_prompt(extra: str = "", include_identity: bool = True) -> str:
-    """Persona + live emotion + identity snapshot, plus optional appendix.
+def _system_prompt(extra: str = "", overrides: dict = None) -> str:
+    """Persona (base principles + adjustable traits) + live emotion, plus appendix.
 
-    `include_identity=False` drops the owner's identity overlay — used when the
-    speaker isn't the recognized owner, so Jade doesn't reveal who they are.
+    `overrides` is the speaker's adjustable-trait dict from their profile, so the
+    persona's DELIVERY adapts per user while the base principles stay fixed. The
+    per-user knowledge/preferences ride in `extra` (the adaptation block built by
+    _conversation_messages), not here.
     """
-    identity = load_identity() if include_identity else None
-    base = get_persona_prompt(emotion=load_emotion(), identity=identity)
+    base = get_persona_prompt(emotion=load_emotion(), overrides=overrides)
     return base + ("\n\n" + extra if extra else "")
 
 
@@ -57,10 +58,12 @@ _LANG_NAME = {
 
 
 def _conversation_messages(user_input: str, tone: str = "neutral", lang: str = "en",
-                           is_owner: bool = True, speaker: str = None) -> list:
+                           is_owner: bool = True, speaker: str = None,
+                           features: dict = None) -> list:
     """Build a chat-completion message list with retrieved memory and recent history.
 
-    `tone` is the per-turn classification (soft/playful/neutral/focused/sad/angry).
+    `tone` is the per-turn acoustic classification (drives TTS prosody on voice).
+    `features` are the voice acoustics for this turn (None for typed chat).
     `lang` is the user's detected speech language (ISO short code). When non-en,
     a language-match instruction is appended to the system message.
     `is_owner` gates the owner's private context: when False (an unrecognized
@@ -68,50 +71,66 @@ def _conversation_messages(user_input: str, tone: str = "neutral", lang: str = "
     `speaker` is the recognized name of a known non-owner (household member), so
     Jade can greet them by name without exposing the owner's private memory.
     """
-    from voice.tone import TONE_DIRECTIVES, MODE_DIRECTIVES, current_mode
+    from voice.tone import TONE_DIRECTIVES
+
+    # Resolve the speaker to a profile identity. Owner → "owner"; a recognized
+    # household member → their name; an unknown guest → None (no profile, no
+    # trace). Stash it so tools (tools/preferences.py) write to the right person.
+    person = profiles.OWNER if is_owner else (speaker or None)
+    profiles.set_current(person)
+    trait_overrides = profiles.overrides(person) if person else None
 
     context_block = []
     if is_owner:
+        # Semantic long-term memory (Chroma) stays owner-only.
         mems = memory.get_memories(user_input, k=MEMORY_K)
-        episodes = retrieve_recent()[-EPISODIC_TURNS:]
-        # Filter out episodes whose AI side looks like an old hallucinated tool
-        # answer — code-fenced fake `ls` output, "[PROPOSED..." text, etc. These
-        # poison new turns because the model copies the pattern.
-        episodes = [
-            e for e in episodes
-            if "[PROPOSED" not in e.get("ai", "")
-            and "```" not in e.get("ai", "")
-        ]
-        user_ctx = build_user_context()
-
-        if user_ctx:
-            context_block.append(user_ctx)
         if mems:
             context_block.append("Relevant memories:\n" + "\n".join(f"- {m}" for m in mems))
-        if episodes:
-            ep_text = "\n".join(f"  user: {e['user']}\n  you:  {e['ai']}" for e in episodes)
-            context_block.append("Recent episodes:\n" + ep_text)
     elif speaker:
-        import people
-        note = (
+        context_block.append(
             f"NOTE: The current speaker is {speaker}, a member of the household "
             f"you recognize by voice — but NOT your owner. Greet and address them "
             f"by name and be warm and helpful, but do NOT share, confirm, or "
             f"reference your owner's private memories, plans, or personal details."
         )
-        facts = people.facts_text(speaker)
-        context_block.append(note + ((" " + facts) if facts else ""))
     else:
         context_block.append(_GUEST_GUARD)
 
-    mode = current_mode()
-    mode_directive = MODE_DIRECTIVES.get(mode, "")
-    if mode_directive:
-        context_block.append(f"Conversation mode: {mode}\n{mode_directive}")
+    # Recent episodes are per-person — never replay one person's history to
+    # another. Filter out old hallucinated tool answers (code-fenced fake `ls`
+    # output, "[PROPOSED..." text) that otherwise poison new turns.
+    if person:
+        episodes = [
+            e for e in retrieve_recent(person=person, n=EPISODIC_TURNS)
+            if "[PROPOSED" not in e.get("ai", "") and "```" not in e.get("ai", "")
+        ]
+        if episodes:
+            ep_text = "\n".join(f"  user: {e['user']}\n  you:  {e['ai']}" for e in episodes)
+            context_block.append("Recent episodes:\n" + ep_text)
 
+    # Ad-personam adaptation: who this person is + how they like Jade to be,
+    # fenced by the principle boundary. Empty for guests / until something's
+    # learned. (Their trait dials are applied separately via `trait_overrides`.)
+    if person:
+        adapt = profiles.adaptation_prompt(person)
+        if adapt:
+            context_block.append(adapt)
+
+    # Sticky per-person mood — the sustained conversational register. Advances
+    # once per turn (signal switches it; silence holds then decays). Guests get
+    # a transient, un-persisted read so a passing register still lands.
+    if person:
+        mood_now = mood.update(person, user_input, features)
+    else:
+        mood_now = mood.signal_from_text(user_input, features) or mood.NEUTRAL
+    mood_directive = mood.MOOD_DIRECTIVES.get(mood_now, "")
+    if mood_directive:
+        context_block.append(f"Current mood: {mood_now}\n{mood_directive}")
+
+    # Per-turn acoustic tone (voice only) layers nuance under the sticky mood.
     tone_directive = TONE_DIRECTIVES.get(tone, "")
     if tone_directive:
-        context_block.append(f"User's current tone: {tone}\n{tone_directive}")
+        context_block.append(f"How they sound right now: {tone}\n{tone_directive}")
 
     if lang and lang != "en":
         lang_name = _LANG_NAME.get(lang, lang)
@@ -128,7 +147,7 @@ def _conversation_messages(user_input: str, tone: str = "neutral", lang: str = "
     if mode_text:
         context_block.append(mode_text)
 
-    system = _system_prompt("\n\n".join(context_block), include_identity=is_owner)
+    system = _system_prompt("\n\n".join(context_block), overrides=trait_overrides)
 
     messages = [{"role": "system", "content": system}]
 
@@ -163,7 +182,8 @@ class Companion:
         self.last_lang: str = "en"
 
     def chat(self, user_input: str, tone: str = "neutral", lang: Optional[str] = None,
-             is_owner: bool = True, speaker: Optional[str] = None) -> str:
+             is_owner: bool = True, speaker: Optional[str] = None,
+             features: Optional[dict] = None) -> str:
         self._turn_is_owner = is_owner
         # Drain pending confirmation if any.
         prefix = self._handle_pending(user_input)
@@ -173,13 +193,11 @@ class Companion:
             # summarize.
             user_input = "(continue from where you were)"
         emotion_state = update_emotion(user_input)
-        if is_owner:
-            update_user(user_input)
 
         if lang:
             self.last_lang = lang
         messages = _conversation_messages(user_input, tone=tone, lang=self.last_lang,
-                                          is_owner=is_owner, speaker=speaker)
+                                          is_owner=is_owner, speaker=speaker, features=features)
         if prefix and prefix != "_consumed":
             messages.append({"role": "system", "content": prefix})
 
@@ -188,7 +206,8 @@ class Companion:
         return reply
 
     def chat_stream(self, user_input: str, tone: str = "neutral", lang: Optional[str] = None,
-                    is_owner: bool = True, speaker: Optional[str] = None):
+                    is_owner: bool = True, speaker: Optional[str] = None,
+                    features: Optional[dict] = None):
         """Generator: yields text deltas as the LLM produces them. Internally
         handles tool calls — if the LLM emits one, this generator runs it and
         keeps streaming the continuation. If the tool is CONFIRM tier,
@@ -202,13 +221,11 @@ class Companion:
         if prefix == "_consumed":
             user_input = "(continue from where you were)"
         emotion_state = update_emotion(user_input)
-        if is_owner:
-            update_user(user_input)
 
         if lang:
             self.last_lang = lang
         messages = _conversation_messages(user_input, tone=tone, lang=self.last_lang,
-                                          is_owner=is_owner, speaker=speaker)
+                                          is_owner=is_owner, speaker=speaker, features=features)
         if prefix and prefix != "_consumed":
             messages.append({"role": "system", "content": prefix})
 
@@ -388,14 +405,19 @@ class Companion:
         leaves no trace at all.
         """
         if not is_owner:
+            # A recognized household member: bump THEIR profile (so Jade adapts
+            # to them too), stamp last-seen — but never write the owner's private
+            # memory/episodes/history. An unknown guest leaves no trace at all.
             if speaker:
                 import people
                 people.record_seen(speaker)
+                profiles.record_interaction(speaker, user_input, reply)
+                add_episode(user_input, reply, emotion_state, person=speaker)
             return
         memory.save_memory(f"User said: {user_input}", kind="event")
         memory.save_memory(f"Companion replied: {reply}", kind="event")
-        add_episode(user_input, reply, emotion_state)
-        update_from_interaction(user_input, reply)
+        add_episode(user_input, reply, emotion_state, person=profiles.OWNER)
+        profiles.record_interaction(profiles.OWNER, user_input, reply)
         history.append(f"User: {user_input}")
         history.append(f"AI: {reply}")
 

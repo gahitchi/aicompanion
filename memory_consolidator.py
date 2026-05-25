@@ -25,8 +25,8 @@ from pathlib import Path
 
 import llm
 import memory
-from episodic_memory import load as load_episodes
-from identity import load as load_identity, save as save_identity
+import profiles
+from episodic_memory import by_person
 
 # Where consolidator state lives. Tracks last-run time so we don't summarize
 # every restart.
@@ -39,25 +39,34 @@ MIN_EPISODES_TO_RUN = int(os.environ.get("CONSOLIDATE_MIN_EPISODES", "4"))
 MAX_FOLLOWUPS_KEPT = 12  # ring buffer; oldest drop off
 
 
-_PROMPT = """You're reading conversation transcripts between THE USER and Jade
-(an AI). Produce ONE JSON object with three fields:
+_PROMPT = """You're reading conversation transcripts between ONE PERSON and Jade
+(an AI). Produce ONE JSON object with these fields:
 
-  summary   — 2-4 sentences on what THE USER and JADE discussed and any
-              emotional or topical arc. Don't pretend events you don't see.
+  summary     — 2-4 sentences on what the person and Jade discussed and any
+                emotional or topical arc. Don't pretend events you don't see.
 
-  facts     — array of NEW factual statements THE USER revealed about
-              THEMSELVES (their life, preferences, projects, opinions,
-              people they know, etc.). Each fact must be something the USER
-              actually said about themselves — not something Jade said, not
-              tool output, not a generic observation. Phrase each as a
-              standalone sentence starting with "User..." or "They...".
-              IGNORE anything that looks like a system status, a tool result,
-              a date/time, or Jade's claims. [] if nothing new about the user.
+  facts       — array of NEW factual statements the PERSON revealed about
+                THEMSELVES (their life, projects, the people they know, etc.).
+                Each must be something the PERSON actually said about
+                themselves — not something Jade said, not tool output. Phrase
+                each as a standalone sentence ("They live in...", "They work
+                as..."). IGNORE system status, tool results, dates. [] if none.
 
-  followups — array of short prompts Jade could naturally bring up next time,
-              based on things the user mentioned. Phrase each as a question
-              about THEM ("how did your project go?", "did you ever try X?").
-              IGNORE anything generic or about Jade. [] if nothing worth raising.
+  personality — array of short observations about HOW this person communicates
+                or behaves, if clearly evidenced ("prefers blunt answers",
+                "uses dark humor", "gets anxious about deadlines"). These guide
+                how Jade should talk to them. [] if not clear yet. Be cautious;
+                don't over-infer from one line.
+
+  habits      — array of routines/patterns ("works late", "asks for a morning
+                briefing", "exercises in the evening"). [] if none.
+
+  likes       — array of topics this person clearly enjoys talking about. [] if
+                none.
+
+  followups   — array of short prompts Jade could naturally raise next time,
+                phrased as questions about THEM ("how did your project go?").
+                [] if nothing worth raising.
 
 Output ONLY the JSON. No prose, no markdown, no explanation."""
 
@@ -88,60 +97,20 @@ def _save_followups(items: list) -> None:
     FOLLOWUPS_FILE.write_text(json.dumps(items[-MAX_FOLLOWUPS_KEPT:], indent=2))
 
 
-def _episodes_since(epoch: float) -> list:
-    """Return episodes recorded after `epoch` (seconds). Falls back to all if
-    we don't have timestamps in the episodes (the existing format doesn't)."""
-    episodes = load_episodes()
-    # episodes.json today has no timestamp on each entry — treat them as a
-    # rolling buffer and just consolidate the last N if it's been a while.
-    return episodes[-30:] if len(episodes) > 30 else episodes
+def _as_list(x) -> list:
+    return x if isinstance(x, list) else []
 
 
-def _merge_facts(new_facts: list[str]) -> int:
-    """Merge new facts into identity_memory.json. Returns number added."""
-    if not new_facts:
-        return 0
-    data = load_identity()
-    profile = data.setdefault("user_profile", {})
-    learned = profile.setdefault("learned_facts", [])
-    existing_lower = {f.lower() for f in learned if isinstance(f, str)}
-    added = 0
-    for fact in new_facts:
-        if not isinstance(fact, str):
-            continue
-        if fact.lower() in existing_lower:
-            continue
-        learned.append(fact.strip())
-        existing_lower.add(fact.lower())
-        added += 1
-    save_identity(data)
-    return added
-
-
-def consolidate(force: bool = False) -> dict:
-    """Run a consolidation pass. Returns a small report dict for logging.
-
-    Skips if the last run was < CONSOLIDATE_INTERVAL_HRS ago (unless force=True),
-    or if there aren't enough new episodes to bother with.
-    """
-    state = _load_state()
-    last_ts = state.get("last_run_ts", 0.0)
-    now = time.time()
-    hours_since = (now - last_ts) / 3600 if last_ts else 999
-    if not force and hours_since < CONSOLIDATE_INTERVAL_HRS:
-        return {"skipped": "interval", "hours_since": round(hours_since, 1)}
-
-    episodes = _episodes_since(last_ts)
-    if len(episodes) < MIN_EPISODES_TO_RUN:
-        return {"skipped": "not_enough_episodes", "count": len(episodes)}
-
-    # Build the input — keep it compact, trim long replies.
+def _consolidate_person(person: str, episodes: list) -> dict:
+    """Summarize + learn from one person's recent episodes. Merges a profile
+    delta (facts + personality/habits/topics) for everyone; for the owner it
+    additionally writes the summary to Chroma and queues follow-ups."""
     lines = []
     for ep in episodes:
         u = (ep.get("user") or "").strip()[:300]
         a = (ep.get("ai") or "").strip()[:300]
         if u or a:
-            lines.append(f"User: {u}\nJade: {a}")
+            lines.append(f"Person: {u}\nJade: {a}")
     convo = "\n\n".join(lines)
     if not convo:
         return {"skipped": "empty"}
@@ -154,46 +123,77 @@ def consolidate(force: bool = False) -> dict:
         raw = llm.chat(messages, temperature=0.3, response_format={"type": "json_object"})
     except Exception as e:
         return {"skipped": "llm_error", "error": str(e)}
-
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         return {"skipped": "bad_json", "snippet": raw[:120]}
 
     summary = (parsed.get("summary") or "").strip()
-    facts = parsed.get("facts") or []
-    followups = parsed.get("followups") or []
+    followups = _as_list(parsed.get("followups"))
 
-    # Write summary to Chroma (semantically retrievable later)
-    if summary:
-        try:
-            memory.save_memory(
-                f"[summary {datetime.now(timezone.utc).date().isoformat()}] {summary}",
-                kind="summary",
-            )
-        except Exception:
-            pass
+    # Learned profile delta — applies to every person. Implicit inference fills
+    # free-text fields only; explicit settings (and dials) are never clobbered.
+    merged = profiles.merge_inferred(person, {
+        "facts": _as_list(parsed.get("facts")),
+        "personality": _as_list(parsed.get("personality")),
+        "habits": _as_list(parsed.get("habits")),
+        "topics_love": _as_list(parsed.get("likes")),
+    })
 
-    facts_added = _merge_facts(facts) if isinstance(facts, list) else 0
+    # Owner-only: durable summary → Chroma; follow-ups → welcome ritual.
+    if person == profiles.OWNER:
+        if summary:
+            try:
+                memory.save_memory(
+                    f"[summary {datetime.now(timezone.utc).date().isoformat()}] {summary}",
+                    kind="summary",
+                )
+            except Exception:
+                pass
+        if followups:
+            existing = _load_followups()
+            new_items = [f.strip() for f in followups if isinstance(f, str) and f.strip()]
+            _save_followups(existing + [f for f in new_items if f not in existing])
 
-    if isinstance(followups, list) and followups:
-        existing = _load_followups()
-        new_items = [f.strip() for f in followups if isinstance(f, str) and f.strip()]
-        merged = existing + [f for f in new_items if f not in existing]
-        _save_followups(merged)
+    return {
+        "episodes": len(episodes),
+        "summary_chars": len(summary),
+        "facts": merged["facts"],
+        "notes": merged["notes"],
+        "followups": len(followups),
+    }
+
+
+def consolidate(force: bool = False) -> dict:
+    """Run a consolidation pass over every person's recent episodes.
+
+    Skips if the last run was < CONSOLIDATE_INTERVAL_HRS ago (unless force=True),
+    or if there aren't enough episodes overall to bother with.
+    """
+    state = _load_state()
+    last_ts = state.get("last_run_ts", 0.0)
+    now = time.time()
+    hours_since = (now - last_ts) / 3600 if last_ts else 999
+    if not force and hours_since < CONSOLIDATE_INTERVAL_HRS:
+        return {"skipped": "interval", "hours_since": round(hours_since, 1)}
+
+    groups = by_person()
+    total = sum(len(v) for v in groups.values())
+    if total < MIN_EPISODES_TO_RUN:
+        return {"skipped": "not_enough_episodes", "count": total}
+
+    report = {"ok": True, "people": {}}
+    for person, eps in groups.items():
+        eps = eps[-30:]
+        if len(eps) < MIN_EPISODES_TO_RUN:
+            continue
+        report["people"][person] = _consolidate_person(person, eps)
 
     state["last_run_ts"] = now
     state["last_run_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    state["last_episode_count"] = len(episodes)
+    state["last_episode_count"] = total
     _save_state(state)
-
-    return {
-        "ok": True,
-        "episodes_seen": len(episodes),
-        "summary_chars": len(summary),
-        "facts_added": facts_added,
-        "followups_added": len(followups) if isinstance(followups, list) else 0,
-    }
+    return report
 
 
 def get_followups() -> list[str]:

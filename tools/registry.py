@@ -52,6 +52,7 @@ from tools.memo import add_memo, transcribe_file
 from tools.expenses import expense_summary, log_expense, set_budget
 from tools.flashcards import add_flashcard, quiz_me, review_card
 from tools.fun import debate_me, surprise_me
+from tools.preferences import forget_preference, remember_preference, set_preference
 import memory
 
 
@@ -1357,6 +1358,82 @@ TOOLS = {
                     "type": "object",
                     "properties": {"topic": {"type": "string"}},
                     "required": ["topic"],
+                },
+            },
+        },
+    },
+
+    # ---- per-user adaptation (how THIS speaker likes you to be) -----------
+    "set_preference": {
+        "fn": set_preference,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "set_preference",
+                "description": (
+                    "Tune how you talk to the current speaker when they ask you to "
+                    "change your style. Use for 'be more concise', 'stop swearing with "
+                    "me', 'be blunter', 'turn explicit on/off', 'lighten up'. "
+                    "setting is one of: verbosity (terse/balanced/expansive), formality "
+                    "(slangy-contractions/casual/polished/formal), humor (none/dry-understated/"
+                    "playful-silly/cutting-sarcastic/dry-sarcastic-in-moderation), profanity "
+                    "(never/matches-user/swears-freely/blue-streak), explicit (on/off), comfort "
+                    "(validating/quietly-present/give-it-straight/comfort-then-analysis), "
+                    "pushback (pushes-back-when-wrong/mostly-agrees). Adjusts delivery only — "
+                    "it never changes your honesty or principles."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "setting": {"type": "string", "description": "Which dial to set (see list)."},
+                        "value": {"type": "string", "description": "The chosen value for that dial."},
+                    },
+                    "required": ["setting", "value"],
+                },
+            },
+        },
+    },
+    "remember_preference": {
+        "fn": remember_preference,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "remember_preference",
+                "description": (
+                    "Save a personal preference or fact the current speaker states about how "
+                    "they like to be treated or what to call them. Use for 'don't call me buddy' "
+                    "(kind=dont), 'always get to the point with me' (kind=do), 'I love talking "
+                    "about film' (kind=like_topic), 'don't bring up my ex' (kind=avoid_topic), "
+                    "'call me boss' (kind=call_me), or a lasting fact about them (kind=about_me). "
+                    "Put the preference itself in text."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "The preference/fact in their words."},
+                        "kind": {"type": "string", "default": "do",
+                                 "description": "do, dont, like_topic, avoid_topic, call_me, or about_me."},
+                    },
+                    "required": ["text"],
+                },
+            },
+        },
+    },
+    "forget_preference": {
+        "fn": forget_preference,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "forget_preference",
+                "description": (
+                    "Drop a previously-saved preference/fact for the current speaker, or reset a "
+                    "dial to default. Use for 'forget that I said no swearing', 'you can bring up X "
+                    "again', 'go back to normal length'."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string", "description": "The preference to remove, or a dial name to reset."}},
+                    "required": ["text"],
                 },
             },
         },

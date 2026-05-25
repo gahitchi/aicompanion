@@ -20,6 +20,8 @@ memory_db/
 emotion.json
 identity_memory.json
 episodes.json
+profiles.json
+mood_state.json
 user.json
 followups.json
 consolidator_state.json

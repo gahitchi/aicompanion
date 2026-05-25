@@ -16,9 +16,10 @@ from pydantic import BaseModel
 
 import events
 import memory
+import mood
+import profiles
 from core.agent import Companion
 from emotion import load as load_emotion
-from identity import load as load_identity
 from shared_state import get_state, push_task
 
 
@@ -44,7 +45,8 @@ def chat(req: ChatRequest):
     except Exception as e:
         events.publish({"type": "status", "state": "idle"})
         return JSONResponse({"error": str(e)}, status_code=500)
-    events.publish({"type": "said", "text": reply})
+    cur_mood = mood.current(mood.OWNER)
+    events.publish({"type": "said", "text": reply, "mood": cur_mood, "mode": cur_mood})
     events.publish({"type": "status", "state": "idle"})
     return {"reply": reply}
 
@@ -64,7 +66,7 @@ def state():
     return {
         "queue_logs": get_state(),
         "emotion": load_emotion(),
-        "identity": load_identity(),
+        "identity": profiles.get(profiles.OWNER),
     }
 
 
@@ -96,7 +98,7 @@ def overview():
     except Exception:
         pass
     try:
-        out["relationship"] = load_identity().get("relationship_state", {})
+        out["relationship"] = profiles.get(profiles.OWNER).get("relationship", {})
     except Exception:
         pass
     try:

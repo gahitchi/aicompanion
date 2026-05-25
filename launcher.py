@@ -100,6 +100,16 @@ def _speak_welcome():
             from main import companion  # noqa: F401  — ensures models init in main flow
             from persona import get_persona_prompt
             persona_prompt = get_persona_prompt()
+            # One-time import of the legacy single-user identity into the owner
+            # profile (idempotent — no-ops once the owner profile is populated).
+            try:
+                import profiles
+                mig = profiles.migrate_legacy()
+                if mig.get("migrated"):
+                    print(f"[profiles] migrated legacy identity: {mig}")
+            except Exception as e:
+                print(f"[profiles] migration skipped: {e}")
+
             # Run a memory consolidation pass first — non-blocking, fast when
             # skipped, surfaces follow-ups we can reference in the greeting.
             try:

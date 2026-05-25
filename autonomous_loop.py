@@ -8,8 +8,8 @@ import time
 
 import llm
 import memory as memory_mod
+import profiles
 from emotion import load as load_emotion
-from identity import load as load_identity
 from persona import get_persona_prompt
 from shared_state import add_log, STOP_EVENT
 
@@ -46,10 +46,10 @@ def _followups() -> list:
 
 
 def decide_next_action():
-    identity = load_identity()
+    owner = profiles.get(profiles.OWNER)
     emotion = load_emotion()
 
-    familiarity = identity["relationship_state"]["familiarity"]
+    familiarity = owner["relationship"]["familiarity"]
     mood = emotion["mood"]
     followups = _followups()
 
@@ -79,7 +79,11 @@ def generate_proactive_message(action, memory_sample, followups):
     if not intent:
         return None
 
-    system = get_persona_prompt(emotion=load_emotion(), identity=load_identity())
+    system = get_persona_prompt(emotion=load_emotion(),
+                                overrides=profiles.overrides(profiles.OWNER))
+    adapt = profiles.adaptation_prompt(profiles.OWNER)
+    if adapt:
+        system += "\n\n" + adapt
     mem_block = "\n".join(f"- {m}" for m in memory_sample) if memory_sample else "(none)"
 
     extra = ""

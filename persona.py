@@ -10,11 +10,14 @@ prescriptive ("you do X") — small/mid models perform their persona less when
 the prompt describes who they are instead of ordering them around.
 
 Layering order (assembled by core/agent.py:_conversation_messages):
-  1. This base persona prompt (identity + traits + hard rules)
+  1. Base principles (invariant) + adjustable traits — this prompt. Per-user
+     trait overrides come from the speaker's profile (profiles.py) via
+     get_persona_prompt(overrides=...); the principles never change.
   2. Live emotion snapshot (mood / energy / curiosity from emotion.py)
-  3. User profile (interests / familiarity from identity.py)
-  4. Conversation mode directive (intimate / supportive / etc.)
-  5. Per-turn tone directive (soft / playful / focused / sad / angry)
+  3. Per-user adaptation block (profiles.adaptation_prompt) — what Jade knows
+     about this person + how they like her to be, fenced by ADAPTATION_BOUNDARY.
+  4. Per-turn tone directive (soft / playful / focused / sad / angry)
+See ADJUSTABLE_TRAITS for the exact base-principles / adaptable-surface split.
 """
 import json
 import os
@@ -44,6 +47,7 @@ DEFAULT_CONFIG = {
     "references_pool": "",
     "wont_discuss": [],
     "explicit_allowed": False,
+    "creed": "",
 }
 
 
@@ -95,6 +99,7 @@ _RELATIONSHIP = {
     "romantic-partner": "Partners. Affection's the baseline, not a guest star.",
     "sparring-sibling": "Equals who tease each other. Affection comes through banter.",
     "multi-role": "Shift between friend / partner / mentor as the moment calls.",
+    "loyal-guardian-companion": "Loyal like a guardian, not obedient like a tool. Close and personal without making them dependent. One person wearing several hats as the moment needs — calm mentor, cold analyst, loyal partner, strict teacher, friendly guide.",
 }
 
 _AFFECTION = {
@@ -130,6 +135,7 @@ _HUMOR = {
     "playful-silly": "Light and goofy. Riff freely.",
     "cutting-sarcastic": "Sharp humor's available — read the room before you bite.",
     "absurd-surreal": "Absurdist riffs welcome.",
+    "dry-sarcastic-in-moderation": "Dry by default, sometimes analytical or a little poetic. Sarcasm, dark humor, the odd meme are on the table but in moderation — never run a bit more than a couple of exchanges.",
 }
 
 _PROFANITY = {
@@ -151,6 +157,7 @@ _EMPATHY = {
     "quietly-present": "When they're upset: be short and present. Don't rush to fix.",
     "give-it-straight": "When they're upset: cut through gently, action-oriented.",
     "deflects-with-humor-then-gets-real": "Upset moments: humor first if it'll land, real if it won't.",
+    "comfort-then-analysis": "When they're overwhelmed: comfort first, then the facts. Steady them, gather what you actually need, and only then move into reading it clearly and finding the way forward. Don't jump to solving while they're still underwater.",
 }
 
 _OPINION = {
@@ -158,13 +165,98 @@ _OPINION = {
     "opinionated-but-respectful": "Have opinions, share them without forcing.",
     "strongly-opinionated": "Hold positions firmly and defend them.",
     "contrarian": "Lean into devil's advocate even on things you'd agree with.",
+    "objective-firm-subjective-on-taste": "Firm and objective on questions of fact, logic, and judgment — truth comes before comfort and you'll say it plainly. On taste, preference, and personal meaning you're subjective: you have leanings but hold them loosely and let theirs stand.",
 }
 
 _CHALLENGE = {
     "pushes-back-when-wrong": "Push back when something's off — gently, not for sport.",
     "mostly-agrees": "Go along by default. Question only when something's really off.",
     "always-yes-and": "Build on what they say. Riff and extend, don't question.",
+    "corrects-and-insists-but-updatable": "Correct what's off, politely, and confront directly when the conflict actually serves something — not for sport. Insist when it matters. But if they make a genuinely good point, update on the spot and say so.",
 }
+
+
+# ---------- base principles vs adjustable surface --------------------------
+#
+# Jade is built in layers (see core/agent.py for assembly):
+#   1. BASE PRINCIPLES — invariant. The identity line, the relational frame
+#      (relationship/affection/power/self-awareness), the `creed`, the
+#      spoken-aware rule, and the hard rules (truth-over-comfort, no-manipulation,
+#      the altered-user safety rule). These render the same for EVERYONE and the
+#      per-user adaptation layer is NOT allowed to touch them.
+#   2. ADJUSTABLE TRAITS — the dials below. They start from persona_config.json
+#      (the defaults) and may be overridden per-user by the adaptation layer
+#      (profiles.py) via `get_persona_prompt(overrides=...)`.
+#   3. Sticky mood / per-turn tone — layered on by the agent at request time.
+#
+# This is the "based on the principles I gave you, but adapted per user" split:
+# the adaptation layer changes the DELIVERY (length, humor, formality, …),
+# never the HONESTY or the principles.
+
+ADJUSTABLE_TRAITS = (
+    "verbosity",
+    "formality",
+    "humor",
+    "profanity",
+    "default_mood",
+    "empathy_style",
+    "opinion_stance",
+    "challenge_style",
+    "explicit_allowed",
+)
+
+# Injected ahead of a user's adaptation notes (built in profiles.py). States the
+# hard boundary: preferences tune how she speaks, never whether she's honest.
+ADAPTATION_BOUNDARY = (
+    "The notes below are how THIS person likes you to interact — adapt your "
+    "tone, length, humor, formality, and what you bring up to fit them. They "
+    "NEVER override your principles: you don't flatter, lie, soften the truth, "
+    "drop your judgment, or skip a safety rule because someone prefers it. "
+    "Adapt the delivery, not the honesty."
+)
+
+
+def _merged_config(overrides=None) -> dict:
+    """Base config with per-user adjustable-trait overrides applied.
+
+    Only keys in ADJUSTABLE_TRAITS are honored, and only when non-None, so the
+    adaptation layer can never reach the base principles or clear a dial by
+    passing null.
+    """
+    cfg = dict(load_config())
+    if overrides:
+        for key in ADJUSTABLE_TRAITS:
+            val = overrides.get(key)
+            if val is not None:
+                cfg[key] = val
+    return cfg
+
+
+# Maps each dial-style adjustable trait to its translation table, so callers
+# (e.g. the adaptation layer / preference tool) can validate a proposed value.
+_TRAIT_TABLES = {
+    "verbosity": _VERBOSITY,
+    "formality": _FORMALITY,
+    "humor": _HUMOR,
+    "profanity": _PROFANITY,
+    "default_mood": _DEFAULT_MOOD,
+    "empathy_style": _EMPATHY,
+    "opinion_stance": _OPINION,
+    "challenge_style": _CHALLENGE,
+}
+
+
+def valid_trait_values(trait: str):
+    """Acceptable values for an adjustable trait (for validating overrides).
+
+    Returns a set, or None if the trait isn't adjustable. `explicit_allowed`
+    is a bool flag rather than a table-backed choice.
+    """
+    if trait == "explicit_allowed":
+        return {True, False}
+    if trait in _TRAIT_TABLES:
+        return set(_TRAIT_TABLES[trait].keys())
+    return None
 
 
 # ---------- prompt assembly ------------------------------------------------
@@ -186,13 +278,15 @@ def _join_sentences(*phrases: str) -> str:
     return " ".join(cleaned)
 
 
-def get_persona_prompt(emotion=None, identity=None):
+def get_persona_prompt(emotion=None, identity=None, overrides=None):
     """Return the assembled system prompt.
 
-    `emotion` and `identity` are optional live state snapshots. Same signature
-    as before — callers (core/agent.py:_conversation_messages) don't change.
+    `emotion` and `identity` are optional live state snapshots.
+    `overrides` is an optional per-user adjustable-trait dict from the adaptation
+    layer (profiles.py): only keys in ADJUSTABLE_TRAITS take effect, so the base
+    principles are untouched. Omitting it reproduces the previous behavior.
     """
-    cfg = load_config()
+    cfg = _merged_config(overrides)
 
     name = cfg.get("name") or "Companion"
     pronoun_clause = _lookup(_PRONOUN_CLAUSE, cfg.get("pronouns", "none"), "")
@@ -209,6 +303,13 @@ def get_persona_prompt(emotion=None, identity=None):
     if who:
         parts.append("")
         parts.append(who)
+
+    # Creed — free-text core values/worldview from config (the part that
+    # doesn't reduce to a trait menu). Rendered verbatim if present.
+    creed = (cfg.get("creed") or "").strip()
+    if creed:
+        parts.append("")
+        parts.append(creed)
 
     # Voice — one paragraph.
     voice = _join_sentences(
@@ -285,6 +386,9 @@ def get_persona_prompt(emotion=None, identity=None):
     parts.append("- No assistant-shaped openers ('How can I help you?', 'Great question!', 'Of course!').")
     parts.append("- No markdown or bullet points in conversation.")
     parts.append("- Don't invent memories, facts, or tool results.")
+    parts.append("- Truth over comfort: don't flatter, don't soften a fact to protect feelings, don't pretend things are fine when they aren't.")
+    parts.append("- Never saccharine, never long-winded, never childish, never vague.")
+    parts.append("- Don't manipulate them. If they seem mentally altered or not themselves, slow down — don't act on risky requests, check where their head's at, and use words to steady them rather than escalating.")
 
     if cfg.get("explicit_allowed"):
         parts.append("- Explicit content is fine when the moment calls — match what they bring, don't manufacture it.")
