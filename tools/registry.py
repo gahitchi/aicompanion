@@ -27,12 +27,21 @@ from tools.media import (
     media_set_volume, media_status,
 )
 from tools.python_exec import python_exec
+from tools.gcal import cancel_event, create_event, list_events
+from tools.mail import list_inbox, read_email, send_email
 from tools.reminders import cancel_reminder, list_reminders, set_reminder
 from tools.runner import run_command
 from tools.safety import bypass
 from tools.system import battery_status, current_time, notify, screenshot
 from tools.vision import look_at_image, see_screen
 from tools.web import fetch_url, search_web
+from tools.weather import get_weather
+from tools.news import get_headlines
+from tools.timers import cancel_timer, list_timers, start_timer
+from tools.summarize import summarize
+from tools.lists import add_to_list, remove_from_list, show_list
+from tools.briefing import daily_briefing
+from tools.spotify import spotify_now_playing, spotify_pause, spotify_play
 import memory
 
 
@@ -594,16 +603,336 @@ TOOLS = {
             },
         },
     },
+
+    # ---- email (owner-only) ----------------------------------------------
+    "list_inbox": {
+        "fn": list_inbox,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "list_inbox",
+                "description": "Summarize recent emails. Use for 'check my email', 'any new mail', 'what's in my inbox'. Defaults to unread, newest first.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "n": {"type": "integer", "default": 5, "description": "How many to list."},
+                        "unread_only": {"type": "boolean", "default": True},
+                    },
+                },
+            },
+        },
+    },
+    "read_email": {
+        "fn": read_email,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "read_email",
+                "description": "Read one email's full text by its id (ids come from list_inbox). Use for 'read me that email', 'what does it say'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string", "description": "Message id from list_inbox."}},
+                    "required": ["id"],
+                },
+            },
+        },
+    },
+    "send_email": {
+        "fn": send_email,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "send_email",
+                "description": "Send an email. Use for 'email X', 'send a message to Y', 'reply to them'. Always confirms before sending.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "to": {"type": "string", "description": "Recipient email address."},
+                        "subject": {"type": "string"},
+                        "body": {"type": "string"},
+                    },
+                    "required": ["to", "subject", "body"],
+                },
+            },
+        },
+    },
+
+    # ---- calendar (owner-only) -------------------------------------------
+    "list_events": {
+        "fn": list_events,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "list_events",
+                "description": "List calendar events. Use for 'what's on my calendar', 'am I free today', 'what's my schedule'. when='today' (default), 'week', or an ISO date.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "when": {"type": "string", "default": "today", "description": "'today', 'week', or an ISO date/datetime."},
+                    },
+                },
+            },
+        },
+    },
+    "create_event": {
+        "fn": create_event,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "create_event",
+                "description": "Add a calendar event. Use for 'add X to my calendar', 'schedule Y', 'book Z'. Convert the time to an ISO datetime for start (and end if given). Always confirms.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "start": {"type": "string", "description": "ISO datetime, e.g. 2026-05-25T12:00."},
+                        "end": {"type": "string", "description": "ISO datetime; defaults to 1h after start."},
+                        "description": {"type": "string", "default": ""},
+                    },
+                    "required": ["title", "start"],
+                },
+            },
+        },
+    },
+    "cancel_event": {
+        "fn": cancel_event,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "cancel_event",
+                "description": "Cancel a calendar event by its id (ids come from list_events). Always confirms.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"event_id": {"type": "string"}},
+                    "required": ["event_id"],
+                },
+            },
+        },
+    },
+
+    # ---- weather / news --------------------------------------------------
+    "get_weather": {
+        "fn": get_weather,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Current weather or short forecast. Use for 'what's the weather', 'will it rain', 'how cold is it'. when='now' (default), 'today', 'tomorrow', or 'week'. location optional (defaults to the configured home).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "location": {"type": "string", "description": "City name or 'lat,lon'. Omit for the default."},
+                        "when": {"type": "string", "default": "now"},
+                    },
+                },
+            },
+        },
+    },
+    "get_headlines": {
+        "fn": get_headlines,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "get_headlines",
+                "description": "Top news headlines. Use for 'what's in the news', 'any headlines', 'what's going on in the world'. topic can be top/world/tech.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "topic": {"type": "string", "default": "top"},
+                        "n": {"type": "integer", "default": 5},
+                    },
+                },
+            },
+        },
+    },
+
+    # ---- timers ----------------------------------------------------------
+    "start_timer": {
+        "fn": start_timer,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "start_timer",
+                "description": "Start a countdown timer. Use for 'set a timer for 10 minutes', 'time 90 seconds'. Convert the duration to seconds; label is optional (e.g. 'pasta').",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "seconds": {"type": "integer"},
+                        "label": {"type": "string", "default": ""},
+                    },
+                    "required": ["seconds"],
+                },
+            },
+        },
+    },
+    "list_timers": {
+        "fn": list_timers,
+        "schema": {"type": "function", "function": {"name": "list_timers",
+                   "description": "List running timers and time left.",
+                   "parameters": {"type": "object", "properties": {}}}},
+    },
+    "cancel_timer": {
+        "fn": cancel_timer,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "cancel_timer",
+                "description": "Cancel a running timer by its id (from list_timers).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"],
+                },
+            },
+        },
+    },
+
+    # ---- summarize -------------------------------------------------------
+    "summarize": {
+        "fn": summarize,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "summarize",
+                "description": "Summarize a web page, text file, or PDF. Use for 'summarize this article', 'what does this PDF say', 'tldr of <url>'. source is a URL or file path; question optionally focuses it.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "source": {"type": "string", "description": "A URL or local file path."},
+                        "question": {"type": "string", "default": ""},
+                    },
+                    "required": ["source"],
+                },
+            },
+        },
+    },
+
+    # ---- spotify ---------------------------------------------------------
+    "spotify_play": {
+        "fn": spotify_play,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "spotify_play",
+                "description": "Play music on Spotify by name. Use for 'play Radiohead', 'put on my Discover Weekly', 'play some jazz'. Pass what to play as query; omit query to just resume. Prefer this over media_play_pause when the user names an artist/song/playlist.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "default": "", "description": "Track, artist, album, or playlist name. Omit to resume."},
+                    },
+                },
+            },
+        },
+    },
+    "spotify_pause": {
+        "fn": spotify_pause,
+        "schema": {"type": "function", "function": {"name": "spotify_pause",
+                   "description": "Pause Spotify playback.",
+                   "parameters": {"type": "object", "properties": {}}}},
+    },
+    "spotify_now_playing": {
+        "fn": spotify_now_playing,
+        "schema": {"type": "function", "function": {"name": "spotify_now_playing",
+                   "description": "What's playing on Spotify right now (title + artist).",
+                   "parameters": {"type": "object", "properties": {}}}},
+    },
+
+    # ---- briefing (owner-only) -------------------------------------------
+    "daily_briefing": {
+        "fn": daily_briefing,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "daily_briefing",
+                "description": "Give a short spoken morning briefing: weather, today's calendar, unread email, and a couple of headlines woven together. Use for 'give me my briefing', 'catch me up', 'what's my day look like'.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    },
+
+    # ---- lists -----------------------------------------------------------
+    "add_to_list": {
+        "fn": add_to_list,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "add_to_list",
+                "description": "Add an item to a named list (shopping, to-do, etc.). Use for 'add milk to my shopping list', 'put X on my to-do'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "List name, e.g. 'shopping'."},
+                        "item": {"type": "string"},
+                    },
+                    "required": ["name", "item"],
+                },
+            },
+        },
+    },
+    "show_list": {
+        "fn": show_list,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "show_list",
+                "description": "Show a named list, or all list names if none given. Use for 'what's on my shopping list', 'what lists do I have'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string", "default": ""}},
+                },
+            },
+        },
+    },
+    "remove_from_list": {
+        "fn": remove_from_list,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "remove_from_list",
+                "description": "Remove an item from a named list. Use for 'take milk off my shopping list', 'remove X from my to-do'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "item": {"type": "string"},
+                    },
+                    "required": ["name", "item"],
+                },
+            },
+        },
+    },
 }
 
 
-def run(name: str, _confirmed: bool = False, **kwargs):
+def run(name: str, /, _confirmed: bool = False, owner: bool = True, **kwargs):
     """Execute a tool. Returns either a string (result) or a _Result(CONFIRM, ...)
-    sentinel that the caller should resolve by asking the user."""
+    sentinel that the caller should resolve by asking the user.
+
+    `name` is positional-only so a tool whose own argument is called "name"
+    (e.g. add_to_list) doesn't collide with it.
+
+    `owner` is the current speaker's owner status. Owner-only tools (email,
+    calendar) are refused for non-owners as defense-in-depth — they're already
+    withheld from the schema list by tool_schemas(owner=False), but a model that
+    hallucinates the call still gets denied here."""
     entry = TOOLS.get(name)
     if entry is None:
         msg = f"tool_not_found: {name} (available: {sorted(TOOLS)})"
         _audit({"tool": name, "args": kwargs, "result": msg, "ok": False})
+        return msg
+
+    if entry.get("owner_only") and not owner:
+        msg = (f"tool_denied: {name} is owner-only and the current speaker is "
+               f"not the recognized owner.")
+        _audit({"tool": name, "args": kwargs, "result": msg, "ok": False,
+                "owner_only": True})
         return msg
 
     fn = entry["fn"]
@@ -638,9 +967,14 @@ def run(name: str, _confirmed: bool = False, **kwargs):
     return result
 
 
-def tool_schemas() -> list:
-    """JSON-schema list for the LLM's `tools=` parameter."""
-    return [entry["schema"] for entry in TOOLS.values()]
+def tool_schemas(owner: bool = True) -> list:
+    """JSON-schema list for the LLM's `tools=` parameter.
+
+    When `owner` is False (the current speaker isn't the recognized owner),
+    owner-only tools are withheld so a household member or guest is never even
+    offered the owner's email/calendar."""
+    return [entry["schema"] for entry in TOOLS.values()
+            if owner or not entry.get("owner_only")]
 
 
 def describe() -> list:

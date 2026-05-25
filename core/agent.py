@@ -146,6 +146,10 @@ class Companion:
     def __init__(self):
         # {tool, args, description} when a CONFIRM-tier action awaits user OK.
         self.pending_action: Optional[dict] = None
+        # Whether the current turn's speaker is the recognized owner. Gates
+        # owner-only tools (email, calendar) so they're neither offered to nor
+        # runnable by a household member / guest. Set per-turn in chat/chat_stream.
+        self._turn_is_owner: bool = True
         # Detected language of the user's most recent utterance (ISO short
         # code: "en", "it", "es", ...). Used by the persona prompt to nudge
         # Jade into replying in the same language, and by TTS to pick a voice.
@@ -153,6 +157,7 @@ class Companion:
 
     def chat(self, user_input: str, tone: str = "neutral", lang: Optional[str] = None,
              is_owner: bool = True, speaker: Optional[str] = None) -> str:
+        self._turn_is_owner = is_owner
         # Drain pending confirmation if any.
         prefix = self._handle_pending(user_input)
         if prefix == "_consumed":
@@ -185,6 +190,7 @@ class Companion:
         `is_owner=False` runs without the owner's private context and skips
         persistent personal writes (see _finalize_turn). `speaker` is the
         recognized name of a known non-owner."""
+        self._turn_is_owner = is_owner
         prefix = self._handle_pending(user_input)
         if prefix == "_consumed":
             user_input = "(continue from where you were)"
@@ -211,7 +217,7 @@ class Companion:
 
     def _chat_with_tools(self, messages: list, streaming: bool) -> str:
         """Non-streaming chat with tool support. Used by chat()."""
-        tools = registry.tool_schemas()
+        tools = registry.tool_schemas(owner=self._turn_is_owner)
         for _step in range(MAX_TOOLS_PER_TURN + 1):
             msg = llm.chat(messages, tools=tools)
             text = (msg.content or "").strip() if msg else ""
@@ -260,7 +266,7 @@ class Companion:
 
     def _stream_with_tools(self, messages: list):
         """Streaming chat with tool support. Used by chat_stream(). Yields text."""
-        tools = registry.tool_schemas()
+        tools = registry.tool_schemas(owner=self._turn_is_owner)
         for _step in range(MAX_TOOLS_PER_TURN + 1):
             text_buf = []
             tool_calls = None
@@ -322,7 +328,8 @@ class Companion:
             args = json.loads(args_json) if isinstance(args_json, str) else (args_json or {})
         except json.JSONDecodeError:
             return f"tool_error: arguments not valid JSON: {args_json!r}"
-        result = registry.run(name, **(args if isinstance(args, dict) else {}))
+        result = registry.run(name, owner=self._turn_is_owner,
+                              **(args if isinstance(args, dict) else {}))
         if isinstance(result, _ToolPending):
             self.pending_action = {
                 "tool": result.tool or name,
@@ -343,7 +350,8 @@ class Companion:
             return ""
         action = self.pending_action
         if is_yes(user_input):
-            result = registry.run(action["tool"], _confirmed=True, **action["args"])
+            result = registry.run(action["tool"], _confirmed=True,
+                                  owner=self._turn_is_owner, **action["args"])
             self.pending_action = None
             preview = result if isinstance(result, str) else "(done)"
             return (

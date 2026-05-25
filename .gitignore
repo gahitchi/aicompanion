@@ -24,6 +24,7 @@ user.json
 followups.json
 consolidator_state.json
 reminders.json
+lists.json
 system.log
 temp.wav
 

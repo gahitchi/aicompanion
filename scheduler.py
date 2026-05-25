@@ -35,13 +35,18 @@ def _save_locked() -> None:
         pass
 
 
-def add_reminder(message: str, run_at: float) -> dict:
-    """Schedule `message` to fire at epoch `run_at`. Returns the stored item."""
+def add_reminder(message: str, run_at: float, kind: str = "reminder") -> dict:
+    """Schedule `message` to fire at epoch `run_at`. Returns the stored item.
+
+    `kind` ("reminder" or "timer") controls how scheduler_loop phrases and tags
+    the spoken event — timers say "Your X timer is up", reminders say "Reminder:".
+    """
     item = {
         "id": uuid.uuid4().hex[:8],
         "message": message.strip(),
         "run_at": float(run_at),
         "created": time.time(),
+        "kind": kind,
     }
     with _LOCK:
         TASKS.append(item)
@@ -49,9 +54,14 @@ def add_reminder(message: str, run_at: float) -> dict:
     return item
 
 
-def list_reminders() -> list:
+def list_reminders(kind: str = None) -> list:
+    """Pending items sorted by fire time. Pass `kind` to filter (items predating
+    the kind field count as 'reminder')."""
     with _LOCK:
-        return sorted((dict(t) for t in TASKS), key=lambda t: t["run_at"])
+        items = [dict(t) for t in TASKS]
+    if kind is not None:
+        items = [t for t in items if t.get("kind", "reminder") == kind]
+    return sorted(items, key=lambda t: t["run_at"])
 
 
 def cancel_reminder(rid: str) -> bool:
@@ -84,9 +94,11 @@ def scheduler_loop(queue) -> None:
     _load()
     while not STOP_EVENT.is_set():
         for t in get_due_tasks():
-            queue.append({
-                "type": "reminder",
-                "content": f"Reminder: {t['message']}",
-                "id": t["id"],
-            })
+            kind = t.get("kind", "reminder")
+            if kind == "timer":
+                msg = t["message"]
+                content = f"Your {msg} timer is up." if msg else "Your timer is up."
+            else:
+                content = f"Reminder: {t['message']}"
+            queue.append({"type": kind, "content": content, "id": t["id"]})
         time.sleep(1)

@@ -59,7 +59,7 @@ def set_reminder(message: str, in_seconds: int = None, at_time: str = None) -> s
 
 
 def list_reminders() -> str:
-    items = scheduler.list_reminders()
+    items = scheduler.list_reminders(kind="reminder")
     if not items:
         return "No reminders set."
     return "Reminders:\n" + "\n".join(

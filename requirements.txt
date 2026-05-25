@@ -56,3 +56,16 @@ psutil>=5.9.0
 pystray>=0.19.0
 # Pillow: tray icon image + cross-platform screenshot fallback (ImageGrab)
 Pillow>=10.0.0
+
+# --- real-world tools ---
+# Google Calendar (owner-only). OAuth via `jade --auth-calendar`. The email
+# tools (tools/mail.py) need NO extra deps — they use stdlib imap/smtplib.
+google-api-python-client>=2.0.0
+google-auth-oauthlib>=1.0.0
+google-auth-httplib2>=0.2.0
+# Spotify playback control (tools/spotify.py). OAuth via `jade --auth-spotify`.
+# Falls back to playerctl/MPRIS when unset, so this is optional.
+spotipy>=2.23.0
+# Document/article summarizing (tools/summarize.py) — PDF text extraction.
+# Weather (Open-Meteo) and news (RSS) need no extra deps: requests + stdlib xml.
+pypdf>=4.0.0

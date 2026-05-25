@@ -62,7 +62,10 @@ def proactive_speaker(queue) -> None:
             continue
         etype = event.get("type")
         now = time.time()
-        if etype != "reminder":
+        # Time-sensitive events fire whenever she isn't already talking; only
+        # open-ended chatter (briefing / autonomous check-ins) respects quiet
+        # hours + the post-user-speech cooldown.
+        if etype not in ("reminder", "timer", "nudge"):
             if _in_quiet_hours(now):
                 continue  # drop proactive chatter overnight
             if now - shared_state.LAST_USER_SPEECH < _PROACTIVE_COOLDOWN:

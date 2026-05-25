@@ -274,12 +274,173 @@ All optional — most are tuning knobs. Set them in `.env` at the repo root.
 | `JADE_PROACTIVE_INTERVAL` | `900` | Seconds between unprompted check-in attempts |
 | `JADE_QUIET_START` / `JADE_QUIET_END` | `23` / `8` | No proactive chatter in this window (24h, wraps midnight) |
 | `JADE_VISION_MODEL` | `qwen2.5vl:3b` | Ollama multimodal model for screen/image vision (`ollama pull` it first) |
+| `JADE_EMAIL_USER` / `JADE_EMAIL_APP_PASSWORD` | unset | Gmail address + app password for the email tools (see below) |
+| `JADE_IMAP_HOST` / `JADE_SMTP_HOST` / `JADE_SMTP_PORT` | gmail / `465` | Email server overrides (defaults are Gmail) |
+| `JADE_GCAL_CLIENT_SECRET` | `~/.aicompanion/gcal_client_secret.json` | Google OAuth client JSON for calendar (see below) |
+| `JADE_GCAL_CALENDAR_ID` | `primary` | Which Google calendar to read/write |
+| `JADE_WEATHER_LOCATION` | unset | Default city or `lat,lon` for weather (Open-Meteo, no key) |
+| `JADE_WEATHER_UNITS` | `metric` | `metric` or `imperial` |
+| `JADE_NEWS_FEEDS` | sane default set | Comma-separated RSS feed URLs for headlines |
+| `JADE_BRIEFING_TIME` | `08:00` | Local `HH:MM` the morning briefing is spoken |
+| `JADE_BRIEFING_INCLUDE_EMAIL` | `1` | `0` keeps unread email out of the spoken briefing |
+| `JADE_NUDGE_LEAD_MIN` | `10` | Minutes before a timed calendar event Jade nudges you |
+| `JADE_SPOTIFY_CLIENT_ID` / `JADE_SPOTIFY_CLIENT_SECRET` | unset | Spotify app credentials (see below) |
+| `JADE_SPOTIFY_REDIRECT_URI` | `http://localhost:8888/callback` | Spotify OAuth redirect (must match the app) |
 | `ASR_DEBUG` | `0` | Per-second mic + VAD peak/voiced heartbeat |
 | `ASR_TONE_LOG` | `0` | Full feature + per-tone score dump per turn |
 
 Tone-classifier thresholds (`TONE_RMS_LOW/HIGH`, `TONE_PITCH_*`, `TONE_RATE_*`,
 `TONE_SENT_*`, `TONE_FLOOR`, `TONE_VOICE_SWAP`) are also env-tunable — see
 "Calibrating the tone classifier".
+
+---
+
+## Real-world tools
+
+Jade can act on the world, not just talk. Everything below **fails open** — if a
+provider isn't configured the tool just tells you how to set it up and the voice
+loop keeps running. The **owner-only** tools (email, calendar, daily briefing)
+are offered and run only when she recognizes the owner's voice, so a household
+member or guest can't read your mail, touch your calendar, or hear your schedule
+on demand. Read actions run immediately; anything that sends, creates, or deletes
+asks for a spoken yes/no first.
+
+### No setup needed
+
+- **Weather** — "what's the weather", "will it rain tomorrow". Uses Open-Meteo
+  (no key). Set `JADE_WEATHER_LOCATION` so she has a default city; otherwise name
+  one in the request.
+- **News headlines** — "what's in the news", "any tech headlines". RSS via
+  stdlib; override the feeds with `JADE_NEWS_FEEDS`.
+- **Timers** — "set a timer for 10 minutes", "how long left on my pasta timer".
+  Spoken when they're up; ungated (they fire even during quiet hours).
+- **Lists** — "add milk to my shopping list", "what's on my to-do". Persisted to
+  a gitignored `lists.json`. SAFE and shared (not owner-only).
+- **Summarize** — "summarize this article <url>", "what does this PDF say"
+  (`~/file.pdf`). URLs and PDFs/text files within your home or `/tmp`.
+- **Music (Spotify)** — see below. Falls back to local playerctl when unset.
+
+> **Where credentials live.** App passwords go in `.env` at the repo root.
+> OAuth tokens (calendar, Spotify) are cached under `~/.aicompanion/` by the
+> one-time `jade --auth-*` commands and auto-refresh after that. The `.env`,
+> the `~/.aicompanion/*_token.json` caches, and the OAuth client JSON are all
+> private — none are committed (`.env` is gitignored; `~/.aicompanion/` lives
+> outside the repo). After editing `.env`, reload it with
+> `systemctl --user restart jade` (Linux) or by restarting `jade`.
+
+### Email (Gmail, app password) — owner-only
+
+Gmail won't accept your normal password over IMAP/SMTP; you need a 16-char
+**app password**, which requires 2-Step Verification.
+
+1. Turn on **2-Step Verification**: <https://myaccount.google.com/security> →
+   "2-Step Verification" → follow the steps. (App passwords don't appear until
+   this is on.)
+2. Create an app password: <https://myaccount.google.com/apppasswords> → type a
+   name like "Jade" → **Create**. Google shows a 16-character code (four groups
+   of four). Copy it; **remove the spaces**.
+3. In `.env` set:
+   ```ini
+   JADE_EMAIL_USER=you@gmail.com
+   JADE_EMAIL_APP_PASSWORD=abcdabcdabcdabcd   # the 16 chars, no spaces
+   ```
+   Then `systemctl --user restart jade`.
+4. Verify: say "check my email" / "read me the first one" / "email
+   sam@example.com that I'll be ten minutes late" → she drafts it and waits for
+   a spoken "yes" before sending.
+
+**Non-Gmail / other providers.** The tools speak plain IMAP+SMTP, so any
+provider works — just point them at the right servers in `.env`:
+```ini
+JADE_IMAP_HOST=imap.mail.me.com      # e.g. iCloud
+JADE_SMTP_HOST=smtp.mail.me.com
+JADE_SMTP_PORT=587                   # 465 (SSL) or 587 (STARTTLS)
+```
+Outlook/Office365, Fastmail, iCloud, etc. all publish their IMAP/SMTP hosts;
+most also require an app-specific password rather than your login password.
+No extra Python packages are needed — email uses the stdlib `imaplib`/`smtplib`.
+
+### Google Calendar (OAuth) — owner-only
+
+Google has no app-password path for Calendar, so this is a one-time OAuth setup.
+It takes ~5 minutes in the Google Cloud Console.
+
+1. Go to <https://console.cloud.google.com/> and create (or pick) a project.
+2. **Enable the API**: APIs & Services → Library → search "Google Calendar API"
+   → **Enable**.
+3. **Configure the consent screen**: APIs & Services → OAuth consent screen →
+   User type **External** → fill in the app name + your email → Save. On the
+   **Test users** step, **add your own Google address**. *(This is the usual
+   gotcha — while the app is "Testing", only listed test users can authorize, so
+   skipping this gives an "access blocked / app not verified" error.)*
+4. **Create the client**: APIs & Services → Credentials → **Create Credentials**
+   → **OAuth client ID** → Application type **Desktop app** → Create → **Download
+   JSON**.
+5. Save that file to `~/.aicompanion/gcal_client_secret.json` (or point
+   `JADE_GCAL_CLIENT_SECRET` at wherever you put it). To use a calendar other
+   than your default, set `JADE_GCAL_CALENDAR_ID`.
+6. Run the one-time flow:
+   ```bash
+   jade --auth-calendar
+   ```
+   It opens a browser, you grant access, and a refresh token is cached at
+   `~/.aicompanion/gcal_token.json`. From then on it refreshes itself — the
+   headless service never needs the browser again.
+7. Verify: "what's on my calendar today" / "add lunch with Sam tomorrow at noon"
+   → she confirms before creating or cancelling anything.
+
+**Headless box (no browser, e.g. over SSH)?** Run `jade --auth-calendar` once on
+any machine that has a browser using the *same* `gcal_client_secret.json`, then
+copy the resulting `~/.aicompanion/gcal_token.json` over to the server.
+
+### Daily briefing + meeting nudges — owner-only, proactive
+
+Once calendar (and optionally email) are connected, Jade speaks a warm morning
+**briefing** — weather, today's schedule, unread mail, a couple of headlines —
+once a day at `JADE_BRIEFING_TIME` (default 08:00), and on demand ("give me my
+briefing"). She also **nudges** you ~`JADE_NUDGE_LEAD_MIN` minutes (default 10)
+before each timed calendar event.
+
+> **Privacy:** the briefing and nudges are background loops that speak your
+> calendar/email **aloud to the room** — they aren't gated by voice the way the
+> on-demand tools are. Set `JADE_BRIEFING_INCLUDE_EMAIL=0` to keep unread mail
+> out of the spoken digest, or move `JADE_BRIEFING_TIME` to when you're alone.
+
+### Music (Spotify, OAuth)
+
+Optional — without it, "play"/"pause" drive whatever's playing locally via
+playerctl/MPRIS. With it, Jade can search and start playback by name. Setup is a
+one-time OAuth, ~3 minutes.
+
+1. Go to <https://developer.spotify.com/dashboard>, log in, and click **Create
+   app**. Give it any name/description; agree to the terms.
+2. Open the app → **Settings**. Copy the **Client ID**, and click "View client
+   secret" to copy the **Client Secret**.
+3. Still in Settings, under **Redirect URIs** add **exactly**
+   `http://localhost:8888/callback` and **Save**. *(It must match
+   `JADE_SPOTIFY_REDIRECT_URI` character-for-character — a trailing slash or
+   `https` will fail with "INVALID_CLIENT: Invalid redirect URI".)*
+4. In `.env` set:
+   ```ini
+   JADE_SPOTIFY_CLIENT_ID=your_client_id
+   JADE_SPOTIFY_CLIENT_SECRET=your_client_secret
+   # JADE_SPOTIFY_REDIRECT_URI=http://localhost:8888/callback   # default; uncomment to change
+   ```
+5. Run the one-time flow:
+   ```bash
+   jade --auth-spotify
+   ```
+   It opens a browser, you approve, and the token is cached at
+   `~/.aicompanion/spotify_token.json` (auto-refreshes afterward). The scopes
+   requested are `user-modify-playback-state` and `user-read-playback-state`.
+6. Verify: "play Radiohead" / "play my Discover Weekly" / "what's playing" /
+   "pause".
+
+Starting playback needs Spotify **Premium** and an **active device** — open the
+Spotify app on a phone or computer and play something once so it registers as a
+device. Without one, Jade tells you there's no active device instead of failing
+silently. (As with calendar, you can run `jade --auth-spotify` on a machine with
+a browser and copy `~/.aicompanion/spotify_token.json` to a headless box.)
 
 ---
 

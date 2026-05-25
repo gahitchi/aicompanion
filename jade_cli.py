@@ -12,6 +12,8 @@ command on PATH — no bash wrapper needed.
   jade --enroll --name Sam enroll a household member she'll greet by name
   jade --enroll-status     list enrolled voiceprints
   jade --reset-voiceprint  delete all voiceprints (turns voice gating off)
+  jade --auth-calendar     one-time Google Calendar OAuth (cache the token)
+  jade --auth-spotify      one-time Spotify OAuth (cache the token)
 """
 import envconfig  # noqa: F401  — load .env before any module reads os.environ
 import argparse
@@ -40,7 +42,21 @@ def main(argv=None) -> None:
                     help="List enrolled voiceprints.")
     ap.add_argument("--reset-voiceprint", action="store_true",
                     help="Delete all enrolled voiceprints (disables speaker gating).")
+    ap.add_argument("--auth-calendar", action="store_true",
+                    help="One-time Google Calendar OAuth: grant access and cache the refresh token.")
+    ap.add_argument("--auth-spotify", action="store_true",
+                    help="One-time Spotify OAuth: grant access and cache the refresh token.")
     args = ap.parse_args(argv)
+
+    if args.auth_calendar:
+        from tools import gcal
+        print(gcal.authorize())
+        return
+
+    if args.auth_spotify:
+        from tools import spotify
+        print(spotify.authorize())
+        return
 
     if args.install_autostart or args.uninstall_autostart:
         import autostart
