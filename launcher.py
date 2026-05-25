@@ -21,6 +21,7 @@ from main import task_queue
 from scheduler import scheduler_loop
 from tools.briefing import briefing_loop, nudge_loop
 from tools.journal import journal_loop
+from tools.flashcards import flashcards_loop
 
 
 def _start_thread(name, target, *args):
@@ -168,6 +169,7 @@ def main():
     _start_thread("briefing", briefing_loop, task_queue)
     _start_thread("nudge", nudge_loop, task_queue)
     _start_thread("journal", journal_loop, task_queue)
+    _start_thread("flashcards", flashcards_loop, task_queue)
     _start_thread("proactive", _run_proactive)
     _start_thread("server", _run_server)
     voice_thread = _start_thread("voice", _run_voice)

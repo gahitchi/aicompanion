@@ -291,6 +291,9 @@ All optional — most are tuning knobs. Set them in `.env` at the repo root.
 | `JADE_JOURNAL_TIME` | `21:00` | Local `HH:MM` for the evening "how was your day?" check-in |
 | `JADE_REFLECTION_DAY` | `sun` | Weekday the weekly reflection replaces the check-in (mon…sun) |
 | `JADE_MODE_TIMEOUT` | `1800` | Seconds a game/roleplay stays active before auto-ending |
+| `JADE_CURRENCY` | `EUR` | Currency code for the expense tracker |
+| `JADE_FLASHCARDS_TIME` | `18:00` | Local `HH:MM` she nudges about flashcards due for review |
+| `JADE_DAY_START` / `JADE_DAY_END` | `09:00` / `18:00` | Working hours used by "when am I free" |
 | `ASR_DEBUG` | `0` | Per-second mic + VAD peak/voiced heartbeat |
 | `ASR_TONE_LOG` | `0` | Full feature + per-tone score dump per turn |
 
@@ -331,6 +334,20 @@ first.
   live traffic**). Set `JADE_HOME_LOCATION`/`JADE_WORK_LOCATION` for "home"/"work";
   set `JADE_MAPS_API_KEY` (Google Directions) for traffic-aware times + transit.
 - **Music (Spotify)** — see below. Falls back to local playerctl when unset.
+- **Voice memos & meeting notes** (owner-only) — "take a memo: call the dentist";
+  she files it. For a recording, "take notes on ~/meeting.m4a" transcribes it with
+  Whisper and summarizes to key points + action items. (Long CPU transcription
+  takes a little while; she captures dictation rather than opening a second mic.)
+- **Expenses & budgets** (owner-only) — "I spent 12 euros on lunch", "budget 200 a
+  month for groceries", "how much did I spend this week". Local `expenses.json`;
+  set `JADE_CURRENCY`.
+- **Flashcards / learning** (owner-only) — "add a flashcard: capital of France is
+  Paris", then "quiz me". Spaced repetition (Leitner); she nudges when cards are
+  due (`JADE_FLASHCARDS_TIME`). Local `flashcards.json`.
+- **Smart scheduling** (owner-only, needs calendar) — "when am I free this week",
+  "find me an hour for the gym". Working hours via `JADE_DAY_START`/`JADE_DAY_END`.
+- **Surprise me** — "tell me a joke", "something interesting", "what happened today
+  in history", or "debate me about X". See Companion features.
 - **Contacts & notes** (owner-only) — see below; no external setup, just usage.
 
 > **Where credentials live.** App passwords go in `.env` at the repo root.
@@ -493,6 +510,10 @@ to anyone in the house.
   on `JADE_REFLECTION_DAY` (default Sunday) she gives a short weekly reflection
   instead, naming patterns she's noticed. Ask any time: "how's my week been". The
   evening check-in and reflection are spoken to the room and respect quiet hours.
+- **Surprise me** — "tell me a joke", "give me a fun fact", "surprise me", or
+  "what happened today in history" (real events via a free almanac). And **debate
+  me** — "argue the other side of X", "change my mind": she plays spirited devil's
+  advocate until you say "okay, be yourself".
 
 > These are conversational, so they shine over the **voice loop** or `python
 > main.py` rather than one-shot API calls — the "mode" lives across turns within a

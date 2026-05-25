@@ -54,10 +54,10 @@ def save_doc(source: str, label: str = "") -> str:
 
 
 def recall_notes(query: str, k: int = 5) -> str:
-    """Search your saved notes and documents for something."""
+    """Search your saved notes, documents, and voice memos for something."""
     if not (query or "").strip():
         return "What would you like me to look up in your notes?"
-    hits = memory.get_memories(query, k=k, kinds=["note", "doc"])
+    hits = memory.get_memories(query, k=k, kinds=["note", "doc", "memo"])
     if not hits:
         return "I don't have any notes on that."
     return "\n".join(f"- {h}" for h in hits)

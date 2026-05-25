@@ -27,7 +27,7 @@ from tools.media import (
     media_set_volume, media_status,
 )
 from tools.python_exec import python_exec
-from tools.gcal import cancel_event, create_event, list_events
+from tools.gcal import cancel_event, create_event, find_free_time, list_events
 from tools.mail import list_inbox, read_email, send_email
 from tools.reminders import cancel_reminder, list_reminders, set_reminder
 from tools.runner import run_command
@@ -48,6 +48,10 @@ from tools.commute import get_commute, leave_by
 from tools.convert import convert
 from tools.modes import end_game, roleplay_as, start_game, stop_roleplay
 from tools.journal import add_journal_entry, weekly_reflection
+from tools.memo import add_memo, transcribe_file
+from tools.expenses import expense_summary, log_expense, set_budget
+from tools.flashcards import add_flashcard, quiz_me, review_card
+from tools.fun import debate_me, surprise_me
 import memory
 
 
@@ -721,6 +725,26 @@ TOOLS = {
             },
         },
     },
+    "find_free_time": {
+        "fn": find_free_time,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "find_free_time",
+                "description": "Find open slots in the calendar. Use for 'when am I free', 'find me an hour for the gym', 'do I have time for a call this week'. duration_min is the length needed; within is 'today' or 'week'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "duration_min": {"type": "integer", "default": 60},
+                        "within": {"type": "string", "default": "week", "description": "'today' or 'week'."},
+                        "day_start": {"type": "string", "default": "09:00"},
+                        "day_end": {"type": "string", "default": "18:00"},
+                    },
+                },
+            },
+        },
+    },
 
     # ---- weather / news --------------------------------------------------
     "get_weather": {
@@ -1156,6 +1180,184 @@ TOOLS = {
                 "name": "weekly_reflection",
                 "description": "Reflect warmly on the user's recent journal entries and mood. Use for 'how has my week been', 'reflect on my journal', 'how have I been doing lately'.",
                 "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    },
+
+    # ---- voice memos (owner-only) ----------------------------------------
+    "add_memo": {
+        "fn": add_memo,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "add_memo",
+                "description": "Save a quick voice memo the user dictates. Use for 'take a memo', 'make a note to myself', 'memo: …'. Put what they said in text.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                },
+            },
+        },
+    },
+    "transcribe_file": {
+        "fn": transcribe_file,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "transcribe_file",
+                "description": "Transcribe an audio recording (a meeting, a voice note) and summarize it to key points and action items. Use for 'take notes on this recording', 'summarize this meeting audio'. path is a local audio file.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string", "description": "Path to an audio file (~ allowed)."}},
+                    "required": ["path"],
+                },
+            },
+        },
+    },
+
+    # ---- expenses (owner-only) -------------------------------------------
+    "log_expense": {
+        "fn": log_expense,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "log_expense",
+                "description": "Record a spend. Use for 'I spent 12 euros on lunch', 'log 40 for groceries'. amount is the number; category is a short word like 'lunch' or 'groceries'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "amount": {"type": "number"},
+                        "category": {"type": "string", "default": ""},
+                        "note": {"type": "string", "default": ""},
+                    },
+                    "required": ["amount"],
+                },
+            },
+        },
+    },
+    "expense_summary": {
+        "fn": expense_summary,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "expense_summary",
+                "description": "Summarize spending by category. Use for 'how much did I spend this week', 'what's my spending this month'. period is 'week', 'month', or 'all'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"period": {"type": "string", "default": "week"}},
+                },
+            },
+        },
+    },
+    "set_budget": {
+        "fn": set_budget,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "set_budget",
+                "description": "Set a spending budget for a category. Use for 'budget 200 a month for groceries', 'cap my dining at 100 a week'. period is 'month' (default) or 'week'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "category": {"type": "string"},
+                        "amount": {"type": "number"},
+                        "period": {"type": "string", "default": "month"},
+                    },
+                    "required": ["category", "amount"],
+                },
+            },
+        },
+    },
+
+    # ---- flashcards / learning (owner-only) ------------------------------
+    "add_flashcard": {
+        "fn": add_flashcard,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "add_flashcard",
+                "description": "Make a study flashcard. Use for 'teach me X', 'add a flashcard', 'help me memorize Y'. front is the question/prompt, back is the answer; deck groups related cards.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "front": {"type": "string", "description": "The prompt/question side."},
+                        "back": {"type": "string", "description": "The answer side."},
+                        "deck": {"type": "string", "default": "general"},
+                    },
+                    "required": ["front", "back"],
+                },
+            },
+        },
+    },
+    "quiz_me": {
+        "fn": quiz_me,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "quiz_me",
+                "description": "Start or continue a spaced-repetition review of due flashcards. Use for 'quiz me', 'test me on my cards', 'let's review'. Optionally limit to a deck.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"deck": {"type": "string", "default": ""}},
+                },
+            },
+        },
+    },
+    "review_card": {
+        "fn": review_card,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "review_card",
+                "description": "Grade a flashcard after the user answers it during a quiz, and reschedule it. id is the card id from quiz_me; correct is whether they got it right.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "correct": {"type": "boolean"},
+                    },
+                    "required": ["id", "correct"],
+                },
+            },
+        },
+    },
+
+    # ---- surprise / fun --------------------------------------------------
+    "surprise_me": {
+        "fn": surprise_me,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "surprise_me",
+                "description": "Delight the user with a joke, fun fact, or 'this day in history'. Use for 'tell me a joke', 'surprise me', 'something interesting', 'what happened today in history'. kind: joke, fact, history, or blank for random.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"kind": {"type": "string", "default": ""}},
+                },
+            },
+        },
+    },
+    "debate_me": {
+        "fn": debate_me,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "debate_me",
+                "description": "Playfully argue the opposite side of a topic (devil's advocate). Use for 'debate me about X', 'argue the other side', 'change my mind'. Ends when they say to stop or 'be yourself'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"topic": {"type": "string"}},
+                    "required": ["topic"],
+                },
             },
         },
     },

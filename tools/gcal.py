@@ -193,3 +193,92 @@ def cancel_event(event_id: str) -> str:
         return f"Cancelled event {event_id}."
     except Exception as e:
         return f"Calendar error: {type(e).__name__}: {e}"
+
+
+def _hhmm(s: str, default):
+    try:
+        h, m = s.strip().split(":")
+        return int(h), int(m)
+    except Exception:
+        return default
+
+
+def _slot_label(start) -> str:
+    today = datetime.now().astimezone().date()
+    d = start.date()
+    if d == today:
+        day = "today"
+    elif d == today + timedelta(days=1):
+        day = "tomorrow"
+    else:
+        day = start.strftime("%A")
+    return day
+
+
+def find_free_time(duration_min: int = 60, within: str = "week",
+                   day_start: str = "09:00", day_end: str = "18:00") -> str:
+    """Find free slots of at least duration_min within working hours over the
+    next window ('today' or 'week'). Working hours default to 09:00-18:00 (or
+    JADE_DAY_START/JADE_DAY_END). SAFE — read only. Only timed events count as
+    busy; all-day events are ignored."""
+    from datetime import time as dtime
+    svc = _service()
+    if svc is None:
+        return _setup_hint()
+    try:
+        dur = timedelta(minutes=max(1, int(duration_min)))
+    except (TypeError, ValueError):
+        dur = timedelta(minutes=60)
+    ds_h, ds_m = _hhmm(os.environ.get("JADE_DAY_START", day_start), (9, 0))
+    de_h, de_m = _hhmm(os.environ.get("JADE_DAY_END", day_end), (18, 0))
+    days = 1 if str(within).strip().lower() == "today" else 7
+
+    now = datetime.now().astimezone()
+    window_end = now + timedelta(days=days)
+    try:
+        events = svc.events().list(
+            calendarId=_calendar_id(), timeMin=now.isoformat(),
+            timeMax=window_end.isoformat(), singleEvents=True,
+            orderBy="startTime", maxResults=100,
+        ).execute().get("items", [])
+    except Exception as e:
+        return f"Calendar error: {type(e).__name__}: {e}"
+
+    busy = []
+    for ev in events:
+        s = ev.get("start", {}).get("dateTime")
+        e = ev.get("end", {}).get("dateTime")
+        if not s or not e:
+            continue  # skip all-day events
+        try:
+            busy.append((datetime.fromisoformat(s).astimezone(),
+                         datetime.fromisoformat(e).astimezone()))
+        except ValueError:
+            continue
+
+    slots = []
+    for d in range(days):
+        day = (now + timedelta(days=d)).date()
+        ws = datetime.combine(day, dtime(ds_h, ds_m)).astimezone()
+        we = datetime.combine(day, dtime(de_h, de_m)).astimezone()
+        if d == 0:
+            ws = max(ws, now)  # never suggest a time already past
+        if ws >= we:
+            continue
+        day_busy = sorted((max(bs, ws), min(be, we)) for bs, be in busy if be > ws and bs < we)
+        cursor = ws
+        for bs, be in day_busy:
+            if bs - cursor >= dur:
+                slots.append((cursor, bs))
+            cursor = max(cursor, be)
+        if we - cursor >= dur:
+            slots.append((cursor, we))
+        if len(slots) >= 5:
+            break
+
+    if not slots:
+        return (f"I don't see a free {int(duration_min)}-minute window "
+                f"{'today' if days == 1 else 'this week'} during working hours.")
+    lines = [f"{_slot_label(s)} {s.strftime('%H:%M')}–{e.strftime('%H:%M')}"
+             for s, e in slots[:5]]
+    return "You're free: " + "; ".join(lines) + "."
