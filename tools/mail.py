@@ -130,24 +130,31 @@ def read_email(id: str) -> str:
 
 
 def send_email(to: str, subject: str, body: str) -> str:
-    """Send an email. CONFIRM — returns the pending sentinel until the user OKs,
-    then sends via SMTP-SSL on the bypass re-run."""
+    """Send an email. `to` may be a saved contact name or a raw address — it's
+    resolved against the contacts book first. CONFIRM — returns the pending
+    sentinel until the user OKs, then sends via SMTP-SSL on the bypass re-run."""
     cfg = _cfg()
     if not cfg["user"] or not cfg["password"]:
         return _SETUP_HINT
+    from tools.contacts import resolve_email
+    resolved = resolve_email(to)
+    if resolved is None:
+        return (f"I don't have an email address for '{to}'. Tell me their address, "
+                f"or save it first — say \"add {to} to my contacts, email is …\".")
+    addr, label = resolved
     if not bypass_enabled():
-        return _Result(CONFIRM, f"send an email to {to} — subject: {subject!r}",
-                       "send_email", {"to": to, "subject": subject, "body": body})
+        return _Result(CONFIRM, f"send an email to {label} — subject: {subject!r}",
+                       "send_email", {"to": addr, "subject": subject, "body": body})
     try:
         m = EmailMessage()
         m["From"] = cfg["user"]
-        m["To"] = to
+        m["To"] = addr
         m["Subject"] = subject
         m.set_content(body)
         ctx = ssl.create_default_context()
         with smtplib.SMTP_SSL(cfg["smtp_host"], cfg["smtp_port"], context=ctx) as s:
             s.login(cfg["user"], cfg["password"])
             s.send_message(m)
-        return f"Sent to {to}."
+        return f"Sent to {addr}."
     except Exception as e:
         return f"Send failed: {type(e).__name__}: {e}"

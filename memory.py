@@ -19,11 +19,17 @@ def save_memory(text, kind="event"):
     )
 
 
-def get_memories(query, k=5):
-    """Return up to k texts most relevant to query. Empty list if none."""
+def get_memories(query, k=5, kinds=None):
+    """Return up to k texts most relevant to query. Empty list if none.
+
+    `kinds` optionally restricts results by the `kind` metadata (e.g.
+    ['note', 'doc']); None searches everything."""
     if not query or not query.strip():
         return []
-    res = col.query(query_texts=[query], n_results=k)
+    where = None
+    if kinds:
+        where = {"kind": kinds[0]} if len(kinds) == 1 else {"kind": {"$in": list(kinds)}}
+    res = col.query(query_texts=[query], n_results=k, where=where)
     docs = res.get("documents") or []
     return docs[0] if docs else []
 

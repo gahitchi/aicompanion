@@ -42,6 +42,10 @@ from tools.summarize import summarize
 from tools.lists import add_to_list, remove_from_list, show_list
 from tools.briefing import daily_briefing
 from tools.spotify import spotify_now_playing, spotify_pause, spotify_play
+from tools.contacts import add_contact, remove_contact, show_contacts
+from tools.notes import recall_notes, save_doc, take_note
+from tools.commute import get_commute, leave_by
+from tools.convert import convert
 import memory
 
 
@@ -646,11 +650,11 @@ TOOLS = {
             "type": "function",
             "function": {
                 "name": "send_email",
-                "description": "Send an email. Use for 'email X', 'send a message to Y', 'reply to them'. Always confirms before sending.",
+                "description": "Send an email. Use for 'email X', 'send a message to Y', 'reply to them'. The recipient may be a saved contact name (e.g. 'Mom') or a raw address. Always confirms before sending.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "to": {"type": "string", "description": "Recipient email address."},
+                        "to": {"type": "string", "description": "Recipient: a saved contact name or an email address."},
                         "subject": {"type": "string"},
                         "body": {"type": "string"},
                     },
@@ -904,6 +908,178 @@ TOOLS = {
                         "item": {"type": "string"},
                     },
                     "required": ["name", "item"],
+                },
+            },
+        },
+    },
+
+    # ---- contacts (owner-only) -------------------------------------------
+    "add_contact": {
+        "fn": add_contact,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "add_contact",
+                "description": "Save or update a contact's details. Use for 'remember mom's email is x', 'add Sam, his number is y', 'save this contact'. Only pass the fields you were told.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "email": {"type": "string", "default": ""},
+                        "phone": {"type": "string", "default": ""},
+                        "note": {"type": "string", "default": "", "description": "Anything else about them."},
+                    },
+                    "required": ["name"],
+                },
+            },
+        },
+    },
+    "show_contacts": {
+        "fn": show_contacts,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "show_contacts",
+                "description": "Show a contact's details, or all contact names if none given. Use for 'what's mom's number', 'who are my contacts', 'do I have an email for Sam'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string", "default": ""}},
+                },
+            },
+        },
+    },
+    "remove_contact": {
+        "fn": remove_contact,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "remove_contact",
+                "description": "Delete a saved contact by name.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
+            },
+        },
+    },
+
+    # ---- notes & doc recall (owner-only) ---------------------------------
+    "take_note": {
+        "fn": take_note,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "take_note",
+                "description": "Save a quick personal note for later. Use for 'note that…', 'jot this down', 'make a note: …'. For saving a whole article/PDF use save_doc instead.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                },
+            },
+        },
+    },
+    "save_doc": {
+        "fn": save_doc,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "save_doc",
+                "description": "Read a URL, PDF, or text file, summarize it, and save it so the user can ask about it later. Use for 'remember this article', 'save this PDF for later', 'keep this for me'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "source": {"type": "string", "description": "A URL or local file path."},
+                        "label": {"type": "string", "default": "", "description": "Optional short name to file it under."},
+                    },
+                    "required": ["source"],
+                },
+            },
+        },
+    },
+    "recall_notes": {
+        "fn": recall_notes,
+        "owner_only": True,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "recall_notes",
+                "description": "Search the user's saved notes and documents. Use for 'what were my notes on X', 'what did that article say about Y', 'check my notes'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "k": {"type": "integer", "default": 5},
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+    },
+
+    # ---- commute / travel time -------------------------------------------
+    "get_commute": {
+        "fn": get_commute,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "get_commute",
+                "description": "Travel time and distance to a place. Use for 'how long to get to X', 'how far is Y', 'what's my commute'. origin defaults to home; mode is driving (default), transit, or walking.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "destination": {"type": "string"},
+                        "origin": {"type": "string", "default": "", "description": "Defaults to home. Can be 'work' or any place."},
+                        "mode": {"type": "string", "default": "driving"},
+                    },
+                    "required": ["destination"],
+                },
+            },
+        },
+    },
+    "leave_by": {
+        "fn": leave_by,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "leave_by",
+                "description": "When to leave to arrive by a given time. Use for 'when should I leave for X to be there by 9', 'what time do I need to head out'. arrive_time is 'HH:MM' or ISO.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "destination": {"type": "string"},
+                        "arrive_time": {"type": "string", "description": "Target arrival time, 'HH:MM' or ISO."},
+                        "origin": {"type": "string", "default": ""},
+                        "mode": {"type": "string", "default": "driving"},
+                    },
+                    "required": ["destination", "arrive_time"],
+                },
+            },
+        },
+    },
+
+    # ---- conversion ------------------------------------------------------
+    "convert": {
+        "fn": convert,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "convert",
+                "description": "Convert units (length, mass, volume, temperature, time, data, speed) or currency (3-letter codes like EUR to USD). Use for 'how many ml in 2 cups', 'what's 50 euros in dollars', '100 F in C'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "value": {"type": "number"},
+                        "from_unit": {"type": "string"},
+                        "to_unit": {"type": "string"},
+                    },
+                    "required": ["value", "from_unit", "to_unit"],
                 },
             },
         },

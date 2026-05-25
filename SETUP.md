@@ -286,6 +286,8 @@ All optional — most are tuning knobs. Set them in `.env` at the repo root.
 | `JADE_NUDGE_LEAD_MIN` | `10` | Minutes before a timed calendar event Jade nudges you |
 | `JADE_SPOTIFY_CLIENT_ID` / `JADE_SPOTIFY_CLIENT_SECRET` | unset | Spotify app credentials (see below) |
 | `JADE_SPOTIFY_REDIRECT_URI` | `http://localhost:8888/callback` | Spotify OAuth redirect (must match the app) |
+| `JADE_HOME_LOCATION` / `JADE_WORK_LOCATION` | `JADE_WEATHER_LOCATION` / unset | Saved "home"/"work" places for commute ETAs |
+| `JADE_MAPS_API_KEY` | unset | Google Directions key for traffic-aware + transit ETAs (default is key-free OSRM driving) |
 | `ASR_DEBUG` | `0` | Per-second mic + VAD peak/voiced heartbeat |
 | `ASR_TONE_LOG` | `0` | Full feature + per-tone score dump per turn |
 
@@ -299,11 +301,12 @@ Tone-classifier thresholds (`TONE_RMS_LOW/HIGH`, `TONE_PITCH_*`, `TONE_RATE_*`,
 
 Jade can act on the world, not just talk. Everything below **fails open** — if a
 provider isn't configured the tool just tells you how to set it up and the voice
-loop keeps running. The **owner-only** tools (email, calendar, daily briefing)
-are offered and run only when she recognizes the owner's voice, so a household
-member or guest can't read your mail, touch your calendar, or hear your schedule
-on demand. Read actions run immediately; anything that sends, creates, or deletes
-asks for a spoken yes/no first.
+loop keeps running. The **owner-only** tools (email, calendar, daily briefing,
+contacts, notes) are offered and run only when she recognizes the owner's voice,
+so a household member or guest can't read your mail, touch your calendar, hear
+your schedule on demand, or see your contacts/notes. Read actions run
+immediately; anything that sends, creates, or deletes asks for a spoken yes/no
+first.
 
 ### No setup needed
 
@@ -318,7 +321,14 @@ asks for a spoken yes/no first.
   a gitignored `lists.json`. SAFE and shared (not owner-only).
 - **Summarize** — "summarize this article <url>", "what does this PDF say"
   (`~/file.pdf`). URLs and PDFs/text files within your home or `/tmp`.
+- **Conversions** — "how many ml in 2 cups", "100 F in C", "50 euros in dollars".
+  Units convert offline; currency uses ECB rates (frankfurter.app, no key).
+- **Commute / travel time** — "how long to get to work", "when should I leave for
+  Milan to be there by 9". Driving ETA via the free OSRM server (no key, **no
+  live traffic**). Set `JADE_HOME_LOCATION`/`JADE_WORK_LOCATION` for "home"/"work";
+  set `JADE_MAPS_API_KEY` (Google Directions) for traffic-aware times + transit.
 - **Music (Spotify)** — see below. Falls back to local playerctl when unset.
+- **Contacts & notes** (owner-only) — see below; no external setup, just usage.
 
 > **Where credentials live.** App passwords go in `.env` at the repo root.
 > OAuth tokens (calendar, Spotify) are cached under `~/.aicompanion/` by the
@@ -441,6 +451,22 @@ Spotify app on a phone or computer and play something once so it registers as a
 device. Without one, Jade tells you there's no active device instead of failing
 silently. (As with calendar, you can run `jade --auth-spotify` on a machine with
 a browser and copy `~/.aicompanion/spotify_token.json` to a headless box.)
+
+### Contacts & notes (owner-only)
+
+No external setup — just talk to her. Both are **owner-only** and private.
+
+- **Contacts** live in a gitignored `contacts.json` (name → email / phone / note):
+  - Save: "remember mom's email is mom@example.com", "add Sam, his number is …".
+  - Recall: "what's mom's number", "who are my contacts".
+  - **Email by name:** once a contact has an email, "email mom that I'll be late"
+    resolves the name and the confirm reads `send an email to Mom <mom@…>` so you
+    can hear exactly who it's going to before saying yes.
+- **Notes & saved docs** ride the existing memory store (`memory_db/`):
+  - Quick notes: "note that Anna's birthday is June 3".
+  - Save a document: "remember this article <url>" / "save this PDF for later" —
+    she fetches, summarizes, and files it.
+  - Recall: "what were my notes on the budget", "what did that article say about X".
 
 ---
 

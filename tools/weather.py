@@ -8,7 +8,8 @@ import os
 
 import requests
 
-_GEOCODE = "https://geocoding-api.open-meteo.com/v1/search"
+from tools.geo import geocode
+
 _FORECAST = "https://api.open-meteo.com/v1/forecast"
 
 # WMO weather codes -> short description.
@@ -30,26 +31,8 @@ def _units() -> dict:
 
 
 def _resolve_location(location: str):
-    """Return (lat, lon, label) or None."""
-    location = (location or os.environ.get("JADE_WEATHER_LOCATION") or "").strip()
-    if not location:
-        return None
-    if "," in location:  # literal "lat,lon"
-        a, _, b = location.partition(",")
-        try:
-            return float(a), float(b), location
-        except ValueError:
-            pass
-    try:
-        r = requests.get(_GEOCODE, params={"name": location, "count": 1}, timeout=10)
-        results = r.json().get("results") or []
-        if not results:
-            return None
-        g = results[0]
-        label = ", ".join(x for x in (g.get("name"), g.get("country_code")) if x)
-        return g["latitude"], g["longitude"], label
-    except Exception:
-        return None
+    """Return (lat, lon, label) or None, defaulting to JADE_WEATHER_LOCATION."""
+    return geocode(location or os.environ.get("JADE_WEATHER_LOCATION") or "")
 
 
 def get_weather(location: str = None, when: str = "now") -> str:
